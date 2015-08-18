@@ -186,37 +186,26 @@ Function Reset-SecuritySettings{}
 
 Function Get-Alias{}
 
-Function Get-SubFolders{}
-
-Function Get-Folders{
+Function Get-OutlookFolder{
     <#
     .SYNOPSIS
-    This function returns a list of all the folders in the specified top level folder.
+    This functions returns one of the Outlook top-level, default folders
 
-    .PARAMETER FolderName
-    Name of the top-level folder to retrieve a list of folders from.
+    .PARAMETER Name
+    Name of the desired folder. Default name is Inbox. 
 
-    .PARAMETER FullObject
-    Return the full folder object instead of just the name
+    .EXAMPLE 
+    Get-OutlookFolder -Name "Inbox"
 
-    .EXAMPLE
-    Get-Folders -FolderName "SentMail"
-    
-    Get a list of folders and sub-folders from the sentmail box. 
     #>
-
 
     [CmdletBinding()]
     param(
-        [parameter(Mandatory = $False, Position = 0)]
-        [string]$FolderName
+        [Parameter(Mandatory = $False)]
+        [String]$Name
     )
 
-    $FolderName = "OlFolder"+$FolderName
-
-    #Create hash table for all Default Folder types 
-
-    $OlDefaultFolders @{
+    $OlDefaultFolders = @{
         "olFolderCalendar" = 9
         "olFolderConflicts" = 19
         "olFolderContacts" = 10
@@ -239,15 +228,146 @@ Function Get-Folders{
         "olFolderRssFeeds" = 25
     }
 
-    $Inbox = $script:MAPI.GetDefaultFolder($OlDefaultFolders.Item($FolderName))
-    $InboxFolders = $Inbox.Folders
+    $FolderName = "OlFolder"+$Name
 
-    if($Fullobject){
-        $InboxFolders
+    $FolderObj =  $script:MAPI.GetDefaultFolder($OlDefaultFolders.Item($FolderName))
+
+    $FolderObj
+
+}
+
+Function Get-EmailItems{
+    <#
+    .SYNOPSIS
+    This function returns all of the items for the specified folder
+
+    .PARAMETER Folder
+    The name of the folder
+
+    .EXAMPLE
+    Get-EmailItems -Folder "Inbox"
+
+    #>
+
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $True, Position = 0)]
+        [string]$Folder,
+
+        [Parameter(Mandatory = $False, Position = 1)]
+        [int]$MaxEmails
+    )
+    
+    $FOlderObj = Get-OutlookFolder -Name $Folder
+
+    if($MaxEmails){
+        $Items = $FolderObj.Items | Select-Object -First $MaxEmails
     }
-    else {
-        $InboxFolders | ForEach {$_.Name} 
+    else{
+        $Items = $FolderObj.Items
     }
+
+    $Emails = @()
+
+    $Items | For-Each {
+
+        $Email = New-Object PSObject -Property @{
+            To = $_.To
+            FromName = $_.SenderName 
+            FromAddress = $_.SenderAddress
+            Subject = $_.Subject
+            Body = $_.Body
+            TimeSent = $_.SentOn
+            TimeReceived = $_.ReceivedTime
+
+        }
+
+        $Emails += $Email
+
+    }
+
+    $Emails 
+
+
+}
+
+Function Invoke-MailSearch{
+
+    <#
+    .SYNOPSIS
+    This function searches the given Outlook folder for items (Emails, Contacts, Tasks, Notes, etc. *Depending on the folder*) and returns
+    any matches found.
+
+    .DESCRIPTION
+    This function searches the given Outlook folder for items containing the specified keywords and returns any matches found. 
+
+    .PARAMETER Folder
+    Folder to search in. Default is the Inbox. 
+
+    .PARAMETER Keywords
+    Keyword/s to search for. The default is password
+
+    .PARAMETER MaxResults
+    Maximum number of results to return. The Default is 15.
+    
+    .EXAMPLE
+    Invoke-MailSearch -Keywords "admin", "password" -MaxResults 20
+
+    Conduct a search on the Inbox with admin and password specified as keywords. Return a maximum of 20 results. 
+
+    #>
+
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $False, Position = 0)]
+        [string]$Folder = "Inbox",
+
+        [Parameter(Mandatory = $False, Position = 1)]
+        [string[]]$Keywords = @("pass","admin","server","login"),
+
+        [Parameter(Mandatory = $False, Position = 2)]
+        [int]$MaxResults = 15
+    )
+
+
+
+}
+
+Function Get-SubFolders{
+    <#
+    .SYNOPSIS
+    This function returns a list of all the folders in the specified top level folder.
+
+    .PARAMETER FolderName
+    Name of the top-level folder to retrieve a list of folders from.
+
+    .PARAMETER FullObject
+    Return the full folder object instead of just the name
+
+    .EXAMPLE
+    Get-SubFolders -FolderName "SentMail"
+    
+    Get a list of folders and sub-folders from the sentmail box. 
+    #>
+
+
+    [CmdletBinding()]
+    param(
+        [parameter(Mandatory = $False, Position = 0)]
+        [System.__ComObject]$Folder
+    )
+
+    $SubFolders = $Folder.Folders
+
+    If(!($SubFolders)){
+        Write-Verbose "No subfolders were found for folder: $($Folder.Name)"
+    }
+
+    if(!($Fullobject)){
+        $SubFolders = $SubFolders | ForEach {$_.Name}
+    }
+    
+    $SubFolders 
     
 
 
