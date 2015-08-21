@@ -243,6 +243,8 @@ Function Get-OutlookFolder{
 
     $FolderObj =  $script:MAPI.GetDefaultFolder($Value)
 
+    Write-Verbose "Obtained Folder Object"
+
     $FolderObj
 
 }
@@ -253,7 +255,13 @@ Function Get-EmailItems{
     This function returns all of the items for the specified folder
 
     .PARAMETER Folder
-    The name of the folder
+    System.__ComObject for the Top Level folder
+
+    .PARAMETER MaxEmails
+    Maximum number of emails to grab
+
+    .PARAMETER Full
+    Return the Full mail item object
 
     .EXAMPLE
     Get-EmailItems -Folder "Inbox"
@@ -266,7 +274,10 @@ Function Get-EmailItems{
         [System.__ComObject]$Folder,
 
         [Parameter(Mandatory = $False, Position = 1)]
-        [int]$MaxEmails
+        [int]$MaxEmails,
+
+        [Parameter(Mandatory = $False)]
+        [switch]$FullObject
     )
     
     $FOlderObj = $Folder
@@ -278,24 +289,30 @@ Function Get-EmailItems{
         $Items = $FolderObj.Items
     }
 
-    $Emails = @()
+    if(!($FullObject)){
+        $Emails = @()
+    
+        $Items | ForEach {
 
-    $Items | ForEach {
+            $Email = New-Object PSObject -Property @{
+                To = $_.To
+                FromName = $_.SenderName 
+                FromAddress = $_.SenderEmailAddress
+                Subject = $_.Subject
+                Body = $_.Body
+                TimeSent = $_.SentOn
+                TimeReceived = $_.ReceivedTime
 
-        $Email = New-Object PSObject -Property @{
-            To = $_.To
-            FromName = $_.SenderName 
-            FromAddress = $_.SenderAddress
-            Subject = $_.Subject
-            Body = $_.Body
-            TimeSent = $_.SentOn
-            TimeReceived = $_.ReceivedTime
+            }
+
+            $Emails += $Email
 
         }
-
-        $Emails += $Email
-
     }
+    else{
+        $Emails = $Items
+    }
+    
 
     $Emails 
 
@@ -315,11 +332,14 @@ Function Invoke-MailSearch{
     .PARAMETER Folder
     Folder to search in. Default is the Inbox. 
 
-    .PARAMETER Keywords
+    .PARAMETER Keyword
     Keyword/s to search for. The default is password
 
     .PARAMETER MaxResults
-    Maximum number of results to return. The Default is 15.
+    Maximum number of results to return.
+
+    .PARAMETER MaxSearch
+    Maximum number of emails to search through
     
     .EXAMPLE
     Invoke-MailSearch -Keywords "admin", "password" -MaxResults 20
@@ -337,16 +357,146 @@ Function Invoke-MailSearch{
         [string]$Keyword,
 
         [Parameter(Mandatory = $False, Position = 2)]
-        [int]$MaxResults = 15
+        [int]$MaxResults,
+
+        [Parameter(Mandatory = $False, Position = 3)]
+        [int]$MaxThreads,
+
+        [Parameter(Mandatory = $False, Position = 4)]
+        [int]$MaxSearch
     )
+
+    $Results = @()
+
+    $SearchEmailBlock = {
+
+        param($Keyword, $MailItem)
+        
+        if(($MailItem.Subject -match $Keyword) -or ($MailItem.Body -match $Keyword)){
+            $Email = New-Object PSObject -Property @{
+                To = $MailItem.To
+                FromName = $MailItem.SenderName 
+                FromAddress = $MailItem.SenderEmailAddress
+                Subject = $MailItem.Subject
+                Body = $MailItem.Body
+                TimeSent = $MailItem.SentOn
+                TimeReceived = $MailItem.ReceivedTime
+            }
+        
+        }
+        $Email
+    }
+
 
     $OF = Get-OutlookFolder -Name $DefaultFolder
 
-    $Emails = Get-EmailItems -Folder $OF
+    if($MaxSearch){
+        $Emails = Get-EmailItems -Folder $OF -FullObject -MaxEmails $MaxSearch
+    }
+    else {
+        $Emails = Get-EmailItems -Folder $OF -FullObject   
+    }
 
-    $Results = $Emails | Where-Object {($_.Subject -match "$Keyword") -or ($_.Body -match "$Keyword")} | Select-Object -First $MaxResults
+    Clear-Host
+    $pos = New-Object -TypeName System.Management.Automation.Host.Coordinates
+    $pos.X = 0
+    $pos.Y = 0
+    $Host.ui.RawUI.CursorPosition = $pos    
 
-    $Results
+    Write-Verbose "[*] Searching through $($Emails.count) emails....."
+
+
+    $sessionState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+    $sessionState.ApartmentState = [System.Threading.Thread]::CurrentThread.GetApartmentState()
+
+    #Get all the current variables for this runspace 
+    $MyVars = Get-Variable -Scope 1
+
+    $VorbiddenVars = @("?","args","ConsoleFileName","Error","ExecutionContext","false","HOME","Host","input","InputObject","MaximumAliasCount","MaximumDriveCount","MaximumErrorCount","MaximumFunctionCount","MaximumHistoryCount","MaximumVariableCount","MyInvocation","null","PID","PSBoundParameters","PSCommandPath","PSCulture","PSDefaultParameterValues","PSHOME","PSScriptRoot","PSUICulture","PSVersionTable","PWD","ShellId","SynchronizedHash","true")
+
+
+    ForEach($Var in $MyVars){
+        if($VorbiddenVars -notcontains $Var.Name){
+            $sessionState.Variables.Add((New-Object -Typename System.Management.Automation.Runspaces.SessionStateVariableEntry -ArgumentList $Var.name,$Var))
+        }
+    }
+
+    
+    Write-Verbose "Creating RunSpace Pool"
+    $pool = [runspacefactory]::CreateRunspacePool(1, $MaxThreads, $sessionState, $host)
+    $pool.Open()
+
+    $jobs = @()
+    $ps = @()
+    $wait = @()
+
+    $counter = 0
+    $MsgCount = 1
+
+    ForEach($Msg in $Emails){
+
+        Write-Verbose "Searching Email # $MsgCount/$($Emails.count)"
+
+        while ($($pool.GetAvailableRunSpaces()) -le 0){
+
+            Start-Sleep -Milliseconds 500
+
+        }
+
+        $ps += [powershell]::create()
+
+        $ps[$counter].runspacepool = $pool
+
+        [void]$ps[$counter].AddScript($SearchEmailBlock).AddParameter('Keyword', $Keyword).AddParameter('MailItem', $Msg)
+
+        $jobs += $ps[$counter].BeginInvoke();
+
+        $wait += $jobs[$counter].AsyncWaitHandle
+
+        $counter = $counter + 1
+        $MsgCount = $MsgCount + 1
+
+    }
+
+    $waitTimeout = Get-Date 
+
+    while ($($jobs | ? {$_.IsCompleted -eq $false}).count -gt 0 -or $($($(Get-Date) - $waitTimeout).totalSeconds) -gt 60) {
+        Start-Sleep -Milliseconds 500
+    }
+
+    for ($x = 0; $x -lt $counter; $x++){
+
+        try {
+            
+            $Results += $ps[$x].EndInvoke($jobs[$x])
+
+        }
+        catch {
+            Write-Warning "error: $_"
+        }
+
+        finally {
+
+            $ps[$x].Dispose()
+        }
+    }
+
+    $pool.Dispose()
+
+    if($MaxResults){
+
+       $Results | Select-Object -First $MaxResults
+       Write-Host "`n"
+ 
+    }
+    else{
+        $Results 
+        Write-Host "`n"
+    }
+    
+    #$Results = $Emails | Where-Object {($_.Subject -match "$Keyword") -or ($_.Body -match "$Keyword")} | Select-Object -First $MaxResults
+
+    #$Results
 }
 
 Function Get-SubFolders{
@@ -425,7 +575,7 @@ Function Get-SMTPAddress{
 
     [CmdletBinding()]
     Param(
-        [string]
+        [string[]]
         $FullName
     )
 
