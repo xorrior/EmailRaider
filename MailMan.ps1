@@ -193,6 +193,20 @@ Function Disable-SecuritySettings{
 
 Function Reset-SecuritySettings{}
 
+Function Invoke-ExitComObj{
+    <#
+    .SYNOPSIS
+    This function destroys the Outlook Com object
+
+    .EXAMPLE
+
+    Invoke-ExitComObj
+
+    #>
+
+    $script:Outlook.quit()
+}
+
 Function Get-OutlookFolder{
     <#
     .SYNOPSIS
@@ -406,6 +420,8 @@ Function Invoke-MailSearch{
     Write-Verbose "[*] Searching through $($Emails.count) emails....."
 
 
+    #All of this multithreading magic is taken directly from harmj0y and his child, powerview
+    #https://github.com/PowerShellEmpire/PowerTools/blob/master/PowerView/powerview.ps1#L5672
     $sessionState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
     $sessionState.ApartmentState = [System.Threading.Thread]::CurrentThread.GetApartmentState()
 
@@ -414,7 +430,7 @@ Function Invoke-MailSearch{
 
     $VorbiddenVars = @("?","args","ConsoleFileName","Error","ExecutionContext","false","HOME","Host","input","InputObject","MaximumAliasCount","MaximumDriveCount","MaximumErrorCount","MaximumFunctionCount","MaximumHistoryCount","MaximumVariableCount","MyInvocation","null","PID","PSBoundParameters","PSCommandPath","PSCulture","PSDefaultParameterValues","PSHOME","PSScriptRoot","PSUICulture","PSVersionTable","PWD","ShellId","SynchronizedHash","true")
 
-
+    #Add the variables from the current runspace to the new runspace 
     ForEach($Var in $MyVars){
         if($VorbiddenVars -notcontains $Var.Name){
             $sessionState.Variables.Add((New-Object -Typename System.Management.Automation.Runspaces.SessionStateVariableEntry -ArgumentList $Var.name,$Var))
