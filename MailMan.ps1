@@ -9,6 +9,10 @@ by @xorrior
 
 #>
 
+Function Invoke-Spam {
+    <#
+    .SYNOPSIS
+}
 
 
 Function Get-OSVersion {
@@ -193,18 +197,19 @@ Function Disable-SecuritySettings{
 
 Function Reset-SecuritySettings{}
 
-Function Invoke-ExitComObj{
+Function Invoke-Exit{
     <#
     .SYNOPSIS
     This function destroys the Outlook Com object
 
     .EXAMPLE
 
-    Invoke-ExitComObj
+    Invoke-Exit
 
     #>
 
     $script:Outlook.quit()
+    [System.Runtime.Interopservices.Marshal]::ReleaseComObject($script:Outlook)
 }
 
 Function Get-OutlookFolder{
@@ -368,7 +373,7 @@ Function Invoke-MailSearch{
         [string]$DefaultFolder,
 
         [Parameter(Mandatory = $True, Position = 1)]
-        [string]$Keyword,
+        [string[]]$Keywords,
 
         [Parameter(Mandatory = $False, Position = 2)]
         [int]$MaxResults,
@@ -380,13 +385,18 @@ Function Invoke-MailSearch{
         [int]$MaxSearch
     )
 
+    #Variable to hold the results 
     $Results = @()
 
     $SearchEmailBlock = {
 
-        param($Keyword, $MailItem)
-        
-        if(($MailItem.Subject -match $Keyword) -or ($MailItem.Body -match $Keyword)){
+        param($Keywords, $MailItem)
+
+        $Subject = $MailItem.Subject 
+        $Body = $MailItem.Body 
+
+        ForEach($word in $Keywords){
+            if(($MailItem.Subject -match $Keyword) -or ($MailItem.Body -match $Keyword)){
             $Email = New-Object PSObject -Property @{
                 To = $MailItem.To
                 FromName = $MailItem.SenderName 
@@ -398,7 +408,7 @@ Function Invoke-MailSearch{
             }
         
         }
-        $Email
+        $Email 
     }
 
 
@@ -411,11 +421,7 @@ Function Invoke-MailSearch{
         $Emails = Get-EmailItems -Folder $OF -FullObject   
     }
 
-    Clear-Host
-    $pos = New-Object -TypeName System.Management.Automation.Host.Coordinates
-    $pos.X = 0
-    $pos.Y = 0
-    $Host.ui.RawUI.CursorPosition = $pos    
+        
 
     Write-Verbose "[*] Searching through $($Emails.count) emails....."
 
@@ -455,7 +461,7 @@ Function Invoke-MailSearch{
 
         while ($($pool.GetAvailableRunSpaces()) -le 0){
 
-            Start-Sleep -Milliseconds 500
+            Start-Sleep -Milliseconds 100
 
         }
 
@@ -463,7 +469,7 @@ Function Invoke-MailSearch{
 
         $ps[$counter].runspacepool = $pool
 
-        [void]$ps[$counter].AddScript($SearchEmailBlock).AddParameter('Keyword', $Keyword).AddParameter('MailItem', $Msg)
+        [void]$ps[$counter].AddScript($SearchEmailBlock).AddParameter('Keywords', $Keywords).AddParameter('MailItem', $Msg)
 
         $jobs += $ps[$counter].BeginInvoke();
 
@@ -477,7 +483,7 @@ Function Invoke-MailSearch{
     $waitTimeout = Get-Date 
 
     while ($($jobs | ? {$_.IsCompleted -eq $false}).count -gt 0 -or $($($(Get-Date) - $waitTimeout).totalSeconds) -gt 60) {
-        Start-Sleep -Milliseconds 500
+        Start-Sleep -Milliseconds 100
     }
 
     for ($x = 0; $x -lt $counter; $x++){
@@ -501,18 +507,20 @@ Function Invoke-MailSearch{
 
     if($MaxResults){
 
-       $Results | Select-Object -First $MaxResults
-       Write-Host "`n"
+       $Results = $Results | Select-Object -First $MaxResults
+       $Results | ForEach-Object {
+            $_ 
+            Write-Host "`n"
+       }
  
     }
     else{
-        $Results 
-        Write-Host "`n"
+        $Results | ForEach-Object {
+            $_
+            Write-Host "`n"
+        }
     }
     
-    #$Results = $Emails | Where-Object {($_.Subject -match "$Keyword") -or ($_.Body -match "$Keyword")} | Select-Object -First $MaxResults
-
-    #$Results
 }
 
 Function Get-SubFolders{
@@ -627,10 +635,10 @@ Function Get-OutlookInstance{
     Get an instance of Outlook. This function must be executed in the same user context of the Outlook application. Specify a Username and password of an admin level account if the 
     current user does not have administrative privileges. This level of access is needed to change/create the Outlook security registry keys. 
 
-    .PARAMETER User
+    .PARAMETER AdminUser
     Username of account with administrative privileges 
 
-    .PARAMETER Pass
+    .PARAMETER AdminPass
     Password of account with administrative privileges
 
     .EXAMPLE
@@ -644,10 +652,10 @@ Function Get-OutlookInstance{
     param(
 
         [parameter(Mandatory = $False, Position = 0)]
-        [string]$Username,
+        [string]$AdminUser,
 
         [parameter(Mandatory = $False, Position = 1)]
-        [string]$Pass
+        [string]$AdminPass
     )
 
     #Switch user context from Administrator to the 
@@ -674,8 +682,8 @@ Function Get-OutlookInstance{
 
     $OV = $script:Outlook.Version
     
-    if($Username -and $Pass){
-        Disable-SecuritySettings -User $Username -Password $Pass -Version $OV
+    if($AdminUser -and $AdminPass){
+        Disable-SecuritySettings -User $AdminUser -Password $AdminPass -Version $OV
         Write-Verbose "Security Prompt should be disabled"
     }
     else{
@@ -683,7 +691,8 @@ Function Get-OutlookInstance{
         Write-Verbose "Security Prompt should be disabled"
     }
     $Script:MAPI = $script:Outlook.GetNamespace('MAPI')
-    $script:MAPI.Logon("", "", $NULL, $NULL)
+    #Namespace.Logon method is unnecessary if we are using the default profile 
+    #$script:MAPI.Logon("", "", $NULL, $NULL)
     
 
 }
