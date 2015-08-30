@@ -391,6 +391,9 @@ Function Invoke-MailSearch{
 
     .PARAMETER MaxSearch
     Maximum number of emails to search through
+
+    .PARAMETER MaxThreads
+    Maximum number of threads to use when searching 
     
     .EXAMPLE
     Invoke-MailSearch -Keywords "admin", "password" -MaxResults 20
@@ -477,7 +480,7 @@ Function Invoke-MailSearch{
     #Add the variables from the current runspace to the new runspace 
     ForEach($Var in $MyVars){
         if($VorbiddenVars -notcontains $Var.Name){
-            $sessionState.Variables.Add((New-Object -Typename System.Management.Automation.Runspaces.SessionStateVariableEntry -ArgumentList $Var.name,$Var))
+            $sessionState.Variables.Add((New-Object -Typename System.Management.Automation.Runspaces.SessionStateVariableEntry -ArgumentList $Var.name,$Var.Value,$Var.description,$Var.options,$Var.attributes))
         }
     }
 
@@ -936,7 +939,7 @@ Function Get-OutlookInstance{
 
     #Switch user context from Administrator to the 
     Write-Verbose "Checking to see if Outlook is currently running"
-    [System.Reflection.Assembly]::LoadWithPartialName("System.Runtime.InteropServices")
+    [System.Reflection.Assembly]::LoadWithPartialName("System.Runtime.InteropServices") | Out-Null
     if(Get-Process | Where-Object {$_.ProcessName -eq "OUTLOOK"}){
         #If outlook is currently running, grab an instance. This script must be running in the same user context as Outlook in order for this to work.  
         try{
