@@ -121,7 +121,7 @@ Function Invoke-Spam {
     }
 
 
-    #Invoke-SentItemsRule -Subject "$EmailSubject" -RuleName "MailMan" 
+     
     #Iterate through the list, craft the emails, and then send it off. 
     ForEach($Target in $TargetEmails){
 
@@ -140,12 +140,11 @@ Function Invoke-Spam {
         }
         $Email.Send()
 
-    }
-
-    #Invoke-SentItemsRule -Subject "$EmailSubject" -RuleName "MailMan" -Disable 
+    } 
    
 }
 
+#This function is a work-in-progress
 Function Invoke-SentItemsRule {
 
     <#
@@ -193,7 +192,6 @@ Function Invoke-SentItemsRule {
     
 
 }
-
 
 Function Get-OSVersion {
 
@@ -244,243 +242,6 @@ Function Get-OSVersion {
     $OSArch 
 }
 
-Function Disable-SecuritySettings{
-
-    <#
-    .SYNOPSIS
-    This function checks for the existence of the Outlook security registry keys ObjectModelGuard, PromptOOMSend, and AdminSecurityMode. If 
-    the keys exist, overwrite with the appropriate values to disable to security prompt for programmatic access.
-
-    .DESCRIPTION
-    This function checks for the ObjectModelGuard, PromptOOMSend, and AdminSecurityMode registry keys for Outlook security. Most likely, this function must be 
-    run in an administrative context in order to set the values for the registry keys. 
-
-    .PARAMETER Version
-    The version of microsoft outlook. This is pertinent to the location of the registry keys. 
-
-    .EXAMPLE
-    Disable-SecuritySettings -Version 15
-
-    #>
-    
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $False)]
-        [string]$User,
-
-        [Parameter(Mandatory = $False)]
-        [string]$Password,
-
-        [parameter(Mandatory = $True)]
-        [string]$Version
-    )
-
-    $count = 0
-    $Version = $Version.Substring(0,4)
-
-    #Check AV to see if it's up to date. 
-    $AV = Get-WmiObject -namespace root\SecurityCenter2 -class Antivirusproduct
-    if($AV){
-        $AVstate = $AV.productState
-        $statuscode = '{0:X6}' -f $AVstate
-        $wscupdated = $statuscode[4,5] -join '' -as [byte]
-        if($wscupdated -eq  (00 -as [byte]))
-        {
-            Write-Verbose "AV is up to date"
-            $AVUpdated = $True
-        }
-        elseif($wscupdated -eq (10 -as [byte])){
-            Write-Verbose "AV is not up to date"
-            $AVUpdated = $False
-        }
-        else{
-            Write-Verbose "Unable to determine AV status"
-            $AVUpdated = $False 
-        }
-    }
-    else{
-        Write-Verbose "AV not installed"
-        $AVUpdated = $False
-    }
-    
-
-    $LMSecurityKey = "HKLM:\SOFTWARE\Microsoft\Office\$Version\Outlook\Security"
-        
-    $CUSecurityKey = "HKCU:\SOFTWARE\Policies\Microsoft\Office\$Version\outlook\security"
-
-    $ObjectModelGuard = "ObjectModelGuard"
-    $PromptOOMSend = "PromptOOMSend"
-    $AdminSecurityMode = "AdminSecurityMode" 
-
-    $cmd = " "
-
-    if(!(Test-Path $LMSecurityKey)){
-        #if the key does not exists, create or update the appropriate reg keys values.
-        $cmd = "New-Item $LMSecurityKey -Force;"
-        $cmd += "New-ItemProperty $LMSecurityKey -Name ObjectModelGuard -Value 2 -PropertyType DWORD -Force;"
-       
-
-    }
-    else{
-            
-        if(((Get-ItemProperty $LMSecurityKey -Name ObjectModelGuard).ObjectModelGuard) -ne 2){
-            #Save the original value 
-            $script:ObjectModelGuardEdited = $True
-            $script:OldObjectModelGuard = (Get-ItemProperty $LMSecurityKey -Name ObjectModelGuard).ObjectModelGuard
-            $cmd = "Set-ItemProperty $LMSecurityKey -Name ObjectModelGuard -Value 2 -Force;" 
-        }
-        else{ 
-            $cmd = "New-ItemProperty $LMSecurityKey -Name ObjectModelGuard -Value 2 -PropertyType DWORD -Force;"
-        }
-    
-                
-    }
-    if(!(Test-Path $CUSecurityKey)){
-
-        $cmd += "New-Item $CUSecurityKey -Force;"
-        $cmd += "New-ItemProperty $CUSecurityKey -Name PromptOOMSend -Value 2 -PropertyType DWORD -Force;" 
-        $cmd += "New-ItemProperty $CUSecurityKey -Name AdminSecurityMode -Value 3 -PropertyType DWORD -Force;"
-      
-    }
-    else{
-        if(((Get-ItemProperty $CUSecurityKey -Name PromptOOMSend).PromptOOMSend) -ne 2){
-            #save the old value  
-            $script:OldPromptOOMSend = (Get-ItemProperty $CUSecurityKey -Name PromptOOMSend).PromptOOMSend
-            $cmd += "Set-ItemProperty $CUSecurityKey -Name PromptOOMSend -Value 2 -Force;"
-            $script:PromptOOMSendEdited = $True 
-        }
-        else{
-            $cmd += "New-ItemProperty $CUSecurityKey -Name PromptOOMSend -Value 2 -PropertyType DWORD -Force;" 
-        }
-
-        If(((Get-ItemProperty $CUSecurityKey -Name AdminSecurityMode).AdminSecurityMode) -ne 3){
-            #save the old value 
-            $script:OldAdminSecurityMode = (Get-ItemProperty $CUSecurityKey -Name AdminSecurityMode).AdminSecurityMode
-            $cmd += "Set-ItemProperty $CUSecurityKey -Name AdminSecurityMode -Value 3 -Force"
-            $script:AdminSecurityModeEdited = $True 
-        }
-        else{
-            $cmd += "New-ItemProperty $CUSecurityKey -Name AdminSecurityMode -Value 3 -PropertyType DWORD -Force" 
-        }
-                  
-    }
-
-    if($User -and $Password){
-
-        #If creds are given start a new powershell process and run the commands. Unable to use the Credential parameter with 
-        $pw = ConvertTo-SecureString $Password -asplaintext -Force
-        $creds = New-Object -Typename System.Management.Automation.PSCredential -argumentlist $User,$pw
-        try {
-            Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd
-            $count += 1
-        }
-        catch {
-            Throw "Unable to change registry settings to disable security prompt"
-        }
-        
-
-    }
-    else{
-
-        #Start-Process powershell.exe -WindowStyle hidden -ArgumentList $cmd
-        try {
-            Invoke-Expression $cmd
-            $count += 1
-        }
-        catch {
-            Throw "Unable to change registry settings to disable security prompt"
-        }
-    }
-    
-
-    if($count -eq 1){
-        $True
-    }
-    elseif($count -eq 0){
-        $False
-    }
-
-}
-
-
-Function Reset-SecuritySettings{
-    <#
-
-    .SYNOPSIS
-    This function resets all of the registry keys to their original state
-
-    .PARAMETER AdminUser
-    Administrative user
-
-    .PARAMETER AdminPass
-    Password of administrative user
-
-    .EXAMPLE
-    Reset-SecuritySettings
-
-    #>
-
-    [CmdletBinding()]
-    param()
-
-
-    $Version = $script:Outlook.Version 
-    $Version = $Version.Substring(0,4)
-
-    $LMSecurityKey = "HKLM:\SOFTWARE\Microsoft\Office\$Version\Outlook\Security"
-
-    $CUSecurityKey = "HKCU:\SOFTWARE\Policies\Microsoft\Office\$Version\outlook\security"
-
-        
-        
-    #if the old value exists, that means the registry key was set and not created. 
-    if($($script:ObjectModelGuardEdited)){
-        #If the key was set, change it back to original value
-        $cmd = "Set-ItemProperty $LMSecurityKey -Name ObjectModelGuard -Value $($script:OldObjectModelGuard) -Force;"
-    }
-    else{
-        #if the key was created, remove it.
-        $cmd = "Remove-ItemProperty -Path $LMSecurityKey -Name ObjectModelGuard -Force;"
-    }
-
-    if($script:PromptOOMSendEdited){
-        $cmd += "Set-ItemProperty $CUSecurityKey -Name PromptOOMSend -Value $($script:OldPromptOOMSend) -Force;" 
-    }
-    else {
-        $cmd += "Remove-ItemProperty -Path $CUSecurityKey -Name PromptOOMSend -Force;"
-    }
-
-    if($script:AdminSecurityModeEdited){
-        $cmd += "Set-ItemProperty $CUSecurityKey -Name AdminSecurityMode -Value $($script:OldAdminSecurityMode) -Force"
-    }
-    else {
-        $cmd += "Remove-ItemProperty -Path $CUSecurityKey -Name AdminSecurityMode -Force"
-    }
-
-    if($script:DisableUser -and $script:DisablePass){
-
-        $pw = ConvertTo-SecureString $script:DisablePass -asplaintext -Force
-        $creds = New-Object -Typename System.Management.Automation.PSCredential -argumentlist $script:DisableUser,$pw
-
-        try {
-            Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd
-        }
-        catch {
-            Throw "Unable to reset registry keys"
-        }
-    }
-    else {
-        try {
-            Invoke-Expression $cmd
-        }
-        catch {
-            Throw "Unable to reset registry keys"
-        }
-    }
-
-
-
-}
 
 
 Function Get-OutlookFolder{
@@ -876,8 +637,8 @@ Function Get-SMTPAddress{
 
     [CmdletBinding()]
     Param(
-        [string[]]
-        $FullNames
+        [Parameter(Mandatory = $False, Position = 0, ValueFromPipeline = $True)]
+        [string[]]$FullNames
     )
 
     #Grab the GAL 
@@ -908,6 +669,241 @@ Function Get-SMTPAddress{
     $PrimarySMTPAddresses
 
 }
+
+Function Disable-SecuritySettings{
+
+    <#
+    .SYNOPSIS
+    This function checks for the existence of the Outlook security registry keys ObjectModelGuard, PromptOOMSend, and AdminSecurityMode. If 
+    the keys exist, overwrite with the appropriate values to disable to security prompt for programmatic access.
+
+    .DESCRIPTION
+    This function checks for the ObjectModelGuard, PromptOOMSend, and AdminSecurityMode registry keys for Outlook security. Most likely, this function must be 
+    run in an administrative context in order to set the values for the registry keys. 
+
+    .PARAMETER Version
+    The version of microsoft outlook. This is pertinent to the location of the registry keys. 
+
+    .EXAMPLE
+    Disable-SecuritySettings -Version 15
+
+    #>
+    
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $False)]
+        [string]$User,
+
+        [Parameter(Mandatory = $False)]
+        [string]$Password,
+
+        [parameter(Mandatory = $True)]
+        [string]$Version
+    )
+
+    $count = 0
+    $Version = $Version.Substring(0,4)
+
+    #Check AV to see if it's up to date. 
+    $AV = Get-WmiObject -namespace root\SecurityCenter2 -class Antivirusproduct
+    if($AV){
+        $AVstate = $AV.productState
+        $statuscode = '{0:X6}' -f $AVstate
+        $wscupdated = $statuscode[4,5] -join '' -as [byte]
+        if($wscupdated -eq  (00 -as [byte]))
+        {
+            Write-Verbose "AV is up to date"
+            $AVUpdated = $True
+        }
+        elseif($wscupdated -eq (10 -as [byte])){
+            Write-Verbose "AV is not up to date"
+            $AVUpdated = $False
+        }
+        else{
+            Write-Verbose "Unable to determine AV status"
+            $AVUpdated = $False 
+        }
+    }
+    else{
+        Write-Verbose "AV not installed"
+        $AVUpdated = $False
+    }
+    
+
+    $LMSecurityKey = "HKLM:\SOFTWARE\Microsoft\Office\$Version\outlook\Security"
+        
+    $CUSecurityKey = "HKCU:\SOFTWARE\Policies\Microsoft\Office\$Version\outlook\security"
+
+    $ObjectModelGuard = "ObjectModelGuard"
+    $PromptOOMSend = "PromptOOMSend"
+    $AdminSecurityMode = "AdminSecurityMode" 
+
+    $cmd = " "
+
+    if(!(Test-Path $LMSecurityKey)){
+        #if the key does not exists, create or update the appropriate reg keys values.
+        $cmd = "New-Item $LMSecurityKey -Force; "
+        $cmd += "New-ItemProperty $LMSecurityKey -Name ObjectModelGuard -Value 2 -PropertyType DWORD -Force; "
+       
+
+    }
+    else{
+
+        $currentValue = (Get-ItemProperty $LMSecurityKey -Name ObjectModelGuard -ErrorAction SilentlyContinue).ObjectModelGuard 
+        if($currentValue -and ($currentValue -ne 2)){
+            #Save the original value 
+            $script:ObjectModelGuardEdited = $True
+            $script:OldObjectModelGuard = (Get-ItemProperty $LMSecurityKey -Name ObjectModelGuard).ObjectModelGuard
+            $cmd = "Set-ItemProperty $LMSecurityKey -Name ObjectModelGuard -Value 2 -Force; "
+        }
+        elseif(!($currentValue)) {
+            $cmd = "New-ItemProperty $LMSecurityKey -Name ObjectModelGuard -Value 2 -PropertyType DWORD -Force; "
+        }
+    
+                
+    }
+    if(!(Test-Path $CUSecurityKey)){
+
+        $cmd += "New-Item $CUSecurityKey -Force; "
+        $cmd += "New-ItemProperty $CUSecurityKey -Name PromptOOMSend -Value 2 -PropertyType DWORD -Force; " 
+        $cmd += "New-ItemProperty $CUSecurityKey -Name AdminSecurityMode -Value 3 -PropertyType DWORD -Force; "
+      
+    }
+    else{
+        $currentValue = (Get-ItemProperty $CUSecurityKey -Name PromptOOMSend -ErrorAction SilentlyContinue).PromptOOMSend
+        if($currentValue -and ($currentValue -ne 2)){
+            #save the old value  
+            $script:OldPromptOOMSend = (Get-ItemProperty $CUSecurityKey -Name PromptOOMSend).PromptOOMSend
+            $cmd += "Set-ItemProperty $CUSecurityKey -Name PromptOOMSend -Value 2 -Force; "
+            $script:PromptOOMSendEdited = $True
+        }
+        elseif(!($currentValue)) {
+             $cmd += "New-ItemProperty $CUSecurityKey -Name PromptOOMSend -Value 2 -PropertyType DWORD -Force; "
+        }
+        
+        $currentValue = (Get-ItemProperty $CUSecurityKey -Name AdminSecurityMode -ErrorAction SilentlyContinue).AdminSecurityMode 
+        if($currentValue -and ($currentValue -ne 3)){
+            #save the old value 
+            $script:OldAdminSecurityMode = (Get-ItemProperty $CUSecurityKey -Name AdminSecurityMode).AdminSecurityMode
+            $cmd += "Set-ItemProperty $CUSecurityKey -Name AdminSecurityMode -Value 3 -Force"
+            $script:AdminSecurityModeEdited = $True 
+        }
+        elseif(!($currentValue)) {
+            $cmd += "New-ItemProperty $CUSecurityKey -Name AdminSecurityMode -Value 3 -PropertyType DWORD -Force"
+        }
+                  
+    }
+
+    if($User -and $Password){
+
+        #If creds are given start a new powershell process and run the commands. Unable to use the Credential parameter with 
+        $pw = ConvertTo-SecureString $Password -asplaintext -Force
+        $creds = New-Object -Typename System.Management.Automation.PSCredential -argumentlist $User,$pw
+        $WD = 'C:\Windows\SysWOW64\WindowsPowerShell\v1.0\'
+        $Arg = " -WindowStyle hidden -Command $cmd"
+        Start-Process "powershell.exe" -WorkingDirectory $WD -Credential $creds -ArgumentList $Arg
+        $count += 1
+        
+
+    }
+    else{
+
+        #Start-Process powershell.exe -WindowStyle hidden -ArgumentList $cmd
+        if($cmd){
+            try {
+                Invoke-Expression $cmd
+            }
+            catch {
+                Throw "Unable to change registry settings to disable security prompt"
+            }
+        }
+        $count += 1
+        
+    }
+    
+
+    if($count -eq 1){
+        $True
+    }
+    elseif($count -eq 0){
+        $False
+    }
+
+}
+
+Function Reset-SecuritySettings{
+    <#
+
+    .SYNOPSIS
+    This function resets all of the registry keys to their original state
+
+    .PARAMETER AdminUser
+    Administrative user
+
+    .PARAMETER AdminPass
+    Password of administrative user
+
+    .EXAMPLE
+    Reset-SecuritySettings
+
+    #>
+
+    [CmdletBinding()]
+    param()
+
+
+    $Version = $script:Outlook.Version 
+    $Version = $Version.Substring(0,4)
+
+    $LMSecurityKey = "HKLM:\SOFTWARE\Microsoft\Office\$Version\Outlook\Security"
+
+    $CUSecurityKey = "HKCU:\SOFTWARE\Policies\Microsoft\Office\$Version\outlook\security"
+
+        
+        
+    #if the old value exists, that means the registry key was set and not created. 
+    if($($script:ObjectModelGuardEdited)){
+        #If the key was set, change it back to original value
+        $cmd = "Set-ItemProperty $LMSecurityKey -Name ObjectModelGuard -Value $($script:OldObjectModelGuard) -Force;"
+    }
+    else{
+        #if the key was created, remove it.
+        $cmd = "Remove-ItemProperty -Path $LMSecurityKey -Name ObjectModelGuard -Force;"
+    }
+
+    if($script:PromptOOMSendEdited){
+        $cmd += "Set-ItemProperty $CUSecurityKey -Name PromptOOMSend -Value $($script:OldPromptOOMSend) -Force;" 
+    }
+    else {
+        $cmd += "Remove-ItemProperty -Path $CUSecurityKey -Name PromptOOMSend -Force;"
+    }
+
+    if($script:AdminSecurityModeEdited){
+        $cmd += "Set-ItemProperty $CUSecurityKey -Name AdminSecurityMode -Value $($script:OldAdminSecurityMode) -Force"
+    }
+    else {
+        $cmd += "Remove-ItemProperty -Path $CUSecurityKey -Name AdminSecurityMode -Force"
+    }
+
+    if($script:DisableUser -and $script:DisablePass){
+
+        $pw = ConvertTo-SecureString $script:DisablePass -asplaintext -Force
+        $creds = New-Object -Typename System.Management.Automation.PSCredential -argumentlist $script:DisableUser,$pw
+        $WD = 'C:\Windows\SysWOW64\WindowsPowerShell\v1.0\'
+        $Arg = " -WindowStyle hidden -Command $cmd"
+        Start-Process powershell.exe -WorkingDirectory $WD -Credential $creds -ArgumentList $Arg 
+    }
+    else {
+        try {
+            Invoke-Expression $cmd
+        }
+        catch {
+            Throw "Unable to reset registry keys"
+        }
+    }
+
+}
+
 
 Function Get-OutlookInstance{
     <#
@@ -940,7 +936,7 @@ Function Get-OutlookInstance{
 
     #Switch user context from Administrator to the 
     Write-Verbose "Checking to see if Outlook is currently running"
-    Add-Type -AssemblyName System.Runtime.InteropServices
+    [System.Reflection.Assembly]::LoadWithPartialName("System.Runtime.InteropServices")
     if(Get-Process | Where-Object {$_.ProcessName -eq "OUTLOOK"}){
         #If outlook is currently running, grab an instance. This script must be running in the same user context as Outlook in order for this to work.  
         try{
