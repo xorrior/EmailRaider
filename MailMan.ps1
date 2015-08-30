@@ -342,7 +342,7 @@ Function Get-EmailItems{
 
     if(!($FullObject)){
         $Emails = @()
-    
+        Write-Verbose "Creating custom Email item objects..."
         $Items | ForEach {
 
             $Email = New-Object PSObject -Property @{
@@ -361,6 +361,7 @@ Function Get-EmailItems{
         }
     }
     else{
+        Write-Verbose "Obtained full Email Item objects...."
         $Emails = $Items
     }
     
@@ -431,21 +432,9 @@ Function Invoke-MailSearch{
         $Body = $MailItem.Body 
 
         ForEach($word in $Keywords){
-            if(($MailItem.Subject -match $Keyword) -or ($MailItem.Body -match $Keyword)){
-                <#
-                $Email = New-Object PSObject -Property @{
-                    To = $MailItem.To
-                    FromName = $MailItem.SenderName 
-                    FromAddress = $MailItem.SenderEmailAddress
-                    Subject = $MailItem.Subject
-                    Body = $MailItem.Body
-                    TimeSent = $MailItem.SentOn
-                    TimeReceived = $MailItem.ReceivedTime
-                }
-                #>
-                #Creating the custom object is too slow
-
+            if(($Subject -match "($word)") -or ($Body -match "($word)")){
                 $Email = $MailItem
+                break
             }
         
         }
