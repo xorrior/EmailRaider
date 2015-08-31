@@ -332,17 +332,19 @@ Function Get-EmailItems{
     )
     
     $FOlderObj = $Folder
-
+    
     if($MaxEmails){
+        Write-Verbose "Selecting the first $MaxEmails emails"
         $Items = $FolderObj.Items | Select-Object -First $MaxEmails
     }
     else{
+        Write-Verbose "Selecting all emails"
         $Items = $FolderObj.Items
     }
 
     if(!($FullObject)){
         $Emails = @()
-    
+        Write-Verbose "Creating custom Email item objects..."
         $Items | ForEach {
 
             $Email = New-Object PSObject -Property @{
@@ -361,6 +363,7 @@ Function Get-EmailItems{
         }
     }
     else{
+        Write-Verbose "Obtained full Email Item objects...."
         $Emails = $Items
     }
     
@@ -396,7 +399,7 @@ Function Invoke-MailSearch{
     Maximum number of threads to use when searching 
     
     .EXAMPLE
-    Invoke-MailSearch -Keywords "admin", "password" -MaxResults 20
+    Invoke-MailSearch -Keyword "password" -MaxResults 20 -MaxThreads 30
 
     Conduct a search on the Inbox with admin and password specified as keywords. Return a maximum of 20 results. 
 
@@ -404,19 +407,19 @@ Function Invoke-MailSearch{
 
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $True, Position = 0)]
+        [Parameter(Mandatory = $True)]
         [string]$DefaultFolder,
 
-        [Parameter(Mandatory = $True, Position = 1)]
-        [string[]]$Keywords,
+        [Parameter(Mandatory = $True)]
+        [string]$Keyword,
 
-        [Parameter(Mandatory = $False, Position = 2)]
+        [Parameter(Mandatory = $False)]
         [int]$MaxResults,
 
-        [Parameter(Mandatory = $False, Position = 3)]
+        [Parameter(Mandatory = $True)]
         [int]$MaxThreads,
 
-        [Parameter(Mandatory = $False, Position = 4)]
+        [Parameter(Mandatory = $False)]
         [int]$MaxSearch
     )
 
@@ -425,30 +428,13 @@ Function Invoke-MailSearch{
 
     $SearchEmailBlock = {
 
-        param($Keywords, $MailItem)
+        param($Keyword, $MailItem)
 
-        $Subject = $MailItem.Subject 
-        $Body = $MailItem.Body 
-
-        ForEach($word in $Keywords){
-            if(($MailItem.Subject -match $Keyword) -or ($MailItem.Body -match $Keyword)){
-                <#
-                $Email = New-Object PSObject -Property @{
-                    To = $MailItem.To
-                    FromName = $MailItem.SenderName 
-                    FromAddress = $MailItem.SenderEmailAddress
-                    Subject = $MailItem.Subject
-                    Body = $MailItem.Body
-                    TimeSent = $MailItem.SentOn
-                    TimeReceived = $MailItem.ReceivedTime
-                }
-                #>
-                #Creating the custom object is too slow
-
-                $Email = $MailItem
-            }
         
+        if(($Subject | Select-String -Pattern $word) -or ($Body | Select-String -Pattern $word)){
+            $Email = $MailItem
         }
+        
         $Email 
     }
 
@@ -550,14 +536,14 @@ Function Invoke-MailSearch{
 
        $Results = $Results | Select-Object -First $MaxResults
        $Results | ForEach-Object {
-            $_  | Select-Object SenderEmailAddress, Subject, Body, SentOn | Format-List  
+            $_  | Select-Object SenderEmailAddress, SenderName, Subject, Body, ReceivedTime | Format-List  
             Write-Host "`n"
        }
  
     }
     else{
         $Results | ForEach-Object {
-            $_  | Select-Object SenderEmailAddress, Subject, Body, SentOn | Format-List 
+            $_  | Select-Object SenderEmailAddress, SenderName, Subject, Body, ReceivedTime | Format-List 
             Write-Host "`n"
         }
     }
