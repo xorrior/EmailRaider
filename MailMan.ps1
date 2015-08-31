@@ -242,7 +242,66 @@ Function Get-OSVersion {
     $OSArch 
 }
 
+Function Select-NextItem{
+    <#
+    .SYNOPSIS
+    This function selects an Email Item according to an index and displays it
 
+    .PARAMETER Index
+    The index of the Email item to display. Defaults to 1.
+
+    .EXAMPLE
+
+    Select-NextItem -Index 5
+
+    Display Email Item 5 in the current folder.
+
+    #>
+
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $False, Position = 0)]
+        [int]$Index = 1
+    )
+    
+    $count += $Index
+
+    $items = $script:CurrentFolder.Items 
+
+    $script:CurrentItem = $items[$count]
+
+    $script:CurrentItem | Select-Object SenderName, SenderEmailAddress, ReceivedTime, Subject, Body 
+}
+
+Function Select-Folder {
+    <#
+    .SYNOPSIS
+    This function changes the current folder to the specified Outlook Default folder and displays the first item in that folder
+
+    .PARAMETER FolderName
+    The Name of the Outlook Default Folder.
+
+    .EXAMPLE
+
+    Select-Folder -FolderName "Inbox"
+
+    Select the olFolderInbox folder and display the first item of the folder. 
+
+    #>
+
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $True, Position = 0)]
+        [string]$FolderName
+    )
+
+
+    $script:CurrentFolder = Get-OutlookFolder -Name $FolderName 
+
+    $FolderItem =  $script:CurrentFolder.Items | Select-Object ReceivedTime, SenderName, SenderEmailAddress, Subject, Body -First 1
+
+    $FolderItem
+}
 
 Function Get-OutlookFolder{
     <#
