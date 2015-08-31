@@ -17,12 +17,15 @@ Specify an AdminUser and AdminPass if the current user does not have permission 
 ####Get-SMTPAddress -FullName "William Striker"
 This function returns the Primary SMTP address of a user from the Global Address List based on there Full Name.
 
-####Invoke-Spam -Targets "testuser@testing.com" -Subject "Wub Wub Wub" -Body "Hey! Click on this <a href='http://www.baddomain.com'>link</a> please!"
+####Invoke-Spam -Targets "testuser@testing.com" -Subject "Wub Wub Wub" -Body "Hey! This is a test email" -Attachment 
 
-This function will send an email to the specified target/s. The TargetList parameter can be used to read in targets from a file. HTML tags may
-be used in the Body parameter.
+This function will send an email to the specified target/s. The TargetList parameter can be used to read in targets from a file. HTML tags maybe used in the Body parameter to embed a URL or whatever suits your needs. 
 
-####Invoke-MailSearch -DefaultFolder 
+####Invoke-MailSearch -DefaultFolder "Inbox" -Keyword "password" -MaxSearch 400 -MaxResults 50 -MaxThreads 15
+
+This function will conduct a multithreaded search through specified Outlook Default folder for emails that contain the keyword. 
+
+
 
 
   
