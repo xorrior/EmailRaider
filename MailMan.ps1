@@ -431,7 +431,7 @@ Function Invoke-MailSearch{
         param($Keyword, $MailItem)
 
         
-        if(($Subject | Select-String -Pattern $word) -or ($Body | Select-String -Pattern $word)){
+        if(($Subject | Select-String -Pattern $Keyword) -or ($Body | Select-String -Pattern $Keyword)){
             $Email = $MailItem
         }
         
