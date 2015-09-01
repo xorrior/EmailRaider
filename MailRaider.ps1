@@ -461,7 +461,7 @@ Function Invoke-MailSearch{
     .DESCRIPTION
     This function searches the given Outlook folder for items containing the specified keywords and returns any matches found. 
 
-    .PARAMETER Folder
+    .PARAMETER DefaultFolder
     Folder to search in. Default is the Inbox. 
 
     .PARAMETER Keyword
