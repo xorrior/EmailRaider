@@ -1,4 +1,4 @@
-## MailMan
+## MailRaider
 ### Powershell MS Outlook Enumeration and Internal Phishing tool
 
 ###Synopsis
