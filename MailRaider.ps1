@@ -188,10 +188,11 @@ Function Invoke-Rule {
     }
     else{
 
-        #$SentItemsFolder = Get-OutlookFolder -Name "SentMail"
+        #Load the assembly for Outlook objects 
         Add-Type -AssemblyName Microsoft.Office.Interop.Outlook | Out-Null 
         $inbox = Get-OutlookFolder -Name "Inbox"
         $DeletedFolder = Get-OutlookFolder -Name "DeletedItems"
+        #Retrieve all Outlook rules 
         $rules = $script:MAPI.DefaultStore.GetRules()
         $rule = $rules.create($RuleName, [Microsoft.Office.Interop.Outlook.OlRuleType]::OlRuleReceive)
 
@@ -206,6 +207,7 @@ Function Invoke-Rule {
             $null,
             $action,
             $DeletedFolder)
+        #Save and enable the rule 
         $rules.Save()
     }
     
@@ -280,7 +282,7 @@ Function Select-NextItem{
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $False, Position = 0)]
-        [UInt32]$Index = 1
+        [Int]$Index = 1
     )
     
     $script:count += $Index
@@ -290,6 +292,41 @@ Function Select-NextItem{
     $script:CurrentItem = $items[$count]
 
     $script:CurrentItem | Select-Object SenderName, SenderEmailAddress, ReceivedTime, Subject, Body 
+}
+
+Function Select-SubFolder{
+    <#
+    .SYNOPSIS
+    This function selects the specified sub folder of an Outlook Default folder and returns the first email item in that folder. 
+
+    .PARAMETER FolderName
+    The Name of the sub folder.
+
+    .EXAMPLE
+
+    Select-SubFolder -FolderName "Financials"
+
+    Select the sub folder "Financials"
+
+    #>
+
+    [CmdletBinding()]
+    param(
+        [parameter(Mandatory = $False)]
+        [string]$FolderName 
+    )
+
+    #If the FolderName isn't specified, display all of the sub folder names 
+    If(!($FolderName)){
+        $script:CurrentFolder.Folders | Select-Object Name 
+    }
+    else {
+        $script:CurrentFolder = $script:CurrentFolder.Folders($FolderName)
+        $FolderItem = $script:CurrentFolder.Items | Select-Object ReceivedTime, SenderName, SenderEmailAddress, Subject, Body -First 1
+        $FolderItem
+    }
+
+    
 }
 
 Function Select-Folder {
