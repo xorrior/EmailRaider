@@ -18,7 +18,7 @@ individual e-mails, one at a time.
 #####Get-SMTPAddress -FullName "William Striker"
 This function returns the Primary SMTP address of a user from the Global Address List based on there Full Name.
 
-#####Invoke-SendEmail -Targets "testuser@testing.com" -Subject "Wub Wub Wub" -Body "Hey! This is a test email" -Attachment 
+#####Invoke-SendEmail -Targets "testuser@testing.com" -Subject "Wub Wub Wub" -Body "Hey! This is a test email" -Attachment .\Payload.rtf
 
 This function will send an email to the specified target/s. The TargetList parameter can be used to read in targets from a file. HTML tags maybe used in the Body parameter to embed a URL or whatever suits your needs. 
 
