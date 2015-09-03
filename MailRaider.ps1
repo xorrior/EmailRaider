@@ -143,6 +143,7 @@ Function Invoke-SendMail {
             $Email.HTMLBody += "`n`n" + "$Signature"
         }
         $Email.Send()
+        Write-Verbose "Sent Email to $Target"
 
         [System.Runtime.Interopservices.Marshal]::ReleaseComObject($Outlook) | Out-Null
     } 
@@ -164,7 +165,10 @@ Function Invoke-Rule {
 
     .PARAMETER Subject
     The subject string to use in the rule
+    
+    .LINK
 
+    https://social.technet.microsoft.com/forums/windowsserver/en-US/6b25cbd2-2bff-4820-ab53-796e306066eb/defining-custom-outlook-rules-using-powershell
     #>
 
     [CmdletBinding()]
@@ -204,7 +208,7 @@ Function Invoke-Rule {
 
         #Load the assembly for Outlook objects 
         Add-Type -AssemblyName Microsoft.Office.Interop.Outlook | Out-Null
-        $MAPI = $Outlook.GetNamespace('MAPI')
+        #$MAPI = $Outlook.GetNamespace('MAPI')
         $inbox = Get-OutlookFolder -Name "Inbox"
         $DeletedFolder = Get-OutlookFolder -Name "DeletedItems"
         #Retrieve all Outlook rules 
@@ -213,6 +217,7 @@ Function Invoke-Rule {
 
         $SubText = $rule.Conditions.Subject
         $SubText.Enabled = $true
+        #Set the matching strings in the email subject to our flags array
         $SubText.Text = $flags
         $action = $rule.Actions.MoveToFolder
         $action.enabled = $true
@@ -222,9 +227,16 @@ Function Invoke-Rule {
             $null,
             $action,
             $DeletedFolder)
-        #Save and enable the rule 
-        $rules.Save()
+        #Save and enable the rule
+        try {
+            $rules.Save()
+            Write-Verbose "Saved Outlook Rule with name: $Rulename"
+        } 
+        catch {
+            Write-Warning "Unable to save inbound rule with name: $RuleName"
+        }
     }
+
 
     [System.Runtime.Interopservices.Marshal]::ReleaseComObject($Outlook) | Out-Null 
     
@@ -286,11 +298,11 @@ Function Select-EmailItem{
     This function selects an Email Item according to an index and displays it
 
     .PARAMETER Index
-    The index of the Email item to display. Defaults to 1.
+    The index of the Email item to display. Defaults to 0.
 
     .EXAMPLE
 
-    Select-NextItem -Index 5
+    Select-EmailItem -Index 5
 
     Display Email Item 5 in the current folder.
 
@@ -298,69 +310,36 @@ Function Select-EmailItem{
 
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $False, Position = 0)]
-        [Int]$Index = 0,
+        [Parameter(Mandatory = $False, Position = 0, ValueFromPipeline = $True)]
+        [System.__ComObject]$FolderObj,
 
         [Parameter(Mandatory = $True, Position = 1)]
-        [System.__ComObject]$FolderObj
+        [int]$Index = 0
     )
 
-    $EmailItem = $FolderObj.Items | Select-Object To,SenderName,SenderEmailAddress,Subject,Body,SentOn,ReceivedTime -Index $Index
+    $EmailItem = $FolderObj.Items | Select-Object -Index $Index
 
-    $EmailItem
+    $EmailItem | Select-Object To,SenderName,SenderEmailAddress,Subject,Body,SentOn,ReceivedTime
     
 }
 
-Function Select-SubFolder{
+
+Function View-Email {
     <#
     .SYNOPSIS
-    This function selects the specified sub folder of an Outlook Default folder and returns the first email item in that folder. 
-
-    .PARAMETER FolderName
-    The Name of the sub folder.
-
-    .EXAMPLE
-
-    Select-SubFolder -FolderName "Financials"
-
-    Select the sub folder "Financials"
-
-    #>
-
-    [CmdletBinding()]
-    param(
-        [parameter(Mandatory = $False)]
-        [string]$FolderName 
-    )
-
-    #If the FolderName isn't specified, display all of the sub folder names 
-    If(!($FolderName)){
-        $script:CurrentFolder.Folders | ForEach {$_.Name}
-    }
-    else {
-        $script:CurrentFolder = $script:CurrentFolder.Folders($FolderName)
-        $script:CurrentFolder.Name 
-    }
-
-    
-}
-
-Function Select-Folder {
-    <#
-    .SYNOPSIS
-    This function changes the current folder to the specified Outlook Default folder and displays the first item in that folder
+    This function selects the specified folder and then outputs the email item at the specified index
 
     .PARAMETER FolderName
     The Name of the Outlook Default Folder.
 
     .PARAMETER Index
-    Index of the Email item within the selected folder to display
+    Index of the Email item within the selected folder to display. The index default is 0.
 
     .EXAMPLE
 
-    Select-Folder -FolderName "Inbox"
+    View-Email -FolderName "Inbox"
 
-    Select the olFolderInbox folder and display the first item of the folder. 
+    Select the olFolderInbox folder and view the first email.
 
     #>
 
@@ -370,18 +349,11 @@ Function Select-Folder {
         [string]$FolderName,
 
         [Parameter(Mandatory = $False, Position = 1)]
-        [string]$Index
+        [string]$Index = 0
     )
 
-    $Folder = Get-OutlookFolder -Name $FolderName
 
-    Write-Verbose "Obtained Folder object"
-    If($Index){
-        Select-EmailItem -Index $Index -FolderObj $Folder
-    }
-    else {
-        $Folder.Name 
-    }
+    Get-OutlookFolder -Name $FolderName | Select-EmailItem -Index $Index
 }
 
 Function Get-OutlookFolder{
@@ -461,13 +433,13 @@ Function Get-EmailItems{
     Return the Full mail item object
 
     .EXAMPLE
-    Get-EmailItems -Folder "Inbox"
+    Get-EmailItems -Folder $Inbox
 
     #>
 
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $True, Position = 0)]
+        [Parameter(Mandatory = $True, Position = 0, ValueFromPipeline = $True)]
         [System.__ComObject]$Folder,
 
         [Parameter(Mandatory = $False, Position = 1)]
@@ -681,14 +653,14 @@ Function Invoke-MailSearch{
 
        $Results = $Results | Select-Object -First $MaxResults
        $Results | ForEach-Object {
-            $_  | Select-Object SenderEmailAddress, SenderName, Subject, Body, ReceivedTime | Format-List  
+            $_  | Select-Object To,SenderName,SenderEmailAddress,Subject,Body,SentOn,ReceivedTime | Format-List  
             Write-Host "`n"
        }
  
     }
     else{
         $Results | ForEach-Object {
-            $_  | Select-Object SenderEmailAddress, SenderName, Subject, Body, ReceivedTime | Format-List 
+            $_  | Select-Object To,SenderName,SenderEmailAddress,Subject,Body,SentOn,ReceivedTime | Format-List 
             Write-Host "`n"
         }
     }
@@ -700,7 +672,7 @@ Function Get-SubFolders{
     .SYNOPSIS
     This function returns a list of all the folders in the specified top level folder.
 
-    .PARAMETER FolderName
+    .PARAMETER DefaultFolder
     Name of the top-level folder to retrieve a list of folders from.
 
     .PARAMETER FullObject
@@ -716,13 +688,13 @@ Function Get-SubFolders{
     [CmdletBinding()]
     param(
         [parameter(Mandatory = $False, Position = 0)]
-        [System.__ComObject]$Folder,
+        [string]$DefaultFolder,
 
         [parameter(Mandatory = $False)]
         [switch]$FullObject
     )
 
-    $SubFolders = $Folder.Folders
+    $SubFolders = (Get-OutlookFolder -Name $DefaultFolder).Folders 
 
     If(!($SubFolders)){
         Throw "No subfolders were found for folder: $($Folder.Name)"
@@ -734,8 +706,6 @@ Function Get-SubFolders{
     
     $SubFolders 
     
-
-
 }
 
 Function Get-GlobalAddressList{
@@ -822,9 +792,10 @@ Function Get-SMTPAddress{
             Throw "Unable to obtain PrimarySMTPAddress for the current user"
         }
     }
-    $PrimarySMTPAddresses
 
     [System.Runtime.Interopservices.Marshal]::ReleaseComObject($Outlook) | Out-Null
+
+    $PrimarySMTPAddresses
 
 }
 
@@ -988,6 +959,7 @@ Function Disable-SecuritySettings{
 
 }
 
+#Under-Construction
 Function Reset-SecuritySettings{
     <#
 
@@ -1006,7 +978,13 @@ Function Reset-SecuritySettings{
     #>
 
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory = $False)]
+        [string]$AdminUser,
+
+        [Parameter(Mandatory = $False)]
+        [string]$AdminPass 
+    )
 
 
     $Version = $script:Outlook.Version 
@@ -1042,10 +1020,10 @@ Function Reset-SecuritySettings{
         $cmd += "Remove-ItemProperty -Path $CUSecurityKey -Name AdminSecurityMode -Force"
     }
 
-    if($script:DisableUser -and $script:DisablePass){
+    if($AdminUser -and $AdminPass){
 
-        $pw = ConvertTo-SecureString $script:DisablePass -asplaintext -Force
-        $creds = New-Object -Typename System.Management.Automation.PSCredential -argumentlist $script:DisableUser,$pw
+        $pw = ConvertTo-SecureString $AdminPass -asplaintext -Force
+        $creds = New-Object -Typename System.Management.Automation.PSCredential -argumentlist $AdminUser,$pw
         $WD = 'C:\Windows\SysWOW64\WindowsPowerShell\v1.0\'
         $Arg = " -WindowStyle hidden -Command $cmd"
         Start-Process powershell.exe -WorkingDirectory $WD -Credential $creds -ArgumentList $Arg 
