@@ -201,40 +201,45 @@ Function Invoke-Rule {
     }
 
     if($Disable){
-        $rule = (($Outlook.session).DefaultStore).GetRules() | Where-Object {$_.Name -eq $RuleName}
+        $rule = ($($Outlook.session).DefaultStore).GetRules() | Where-Object {$_.Name -eq $RuleName}
         $rule.enabled = $False 
     }
     else{
 
-        #Load the assembly for Outlook objects 
-        Add-Type -AssemblyName Microsoft.Office.Interop.Outlook | Out-Null
-        #$MAPI = $Outlook.GetNamespace('MAPI')
-        $inbox = Get-OutlookFolder -Name "Inbox"
-        $DeletedFolder = Get-OutlookFolder -Name "DeletedItems"
-        #Retrieve all Outlook rules 
-        $rules = $MAPI.DefaultStore.GetRules()
-        $rule = $rules.create($RuleName, [Microsoft.Office.Interop.Outlook.OlRuleType]::OlRuleReceive)
+        #Check if the Rule has already been created
+        $rule = ($($Outlook.session).DefaultStore).GetRules() | Where-Object {(!(Compare-Object $($_.Conditions.Subject).Text $flags))}
+        if(!($rule)){
+            #Load the assembly for Outlook objects 
+            Add-Type -AssemblyName Microsoft.Office.Interop.Outlook | Out-Null
+            #$MAPI = $Outlook.GetNamespace('MAPI')
+            $inbox = Get-OutlookFolder -Name "Inbox"
+            $DeletedFolder = Get-OutlookFolder -Name "DeletedItems"
+            #Retrieve all Outlook rules 
+            $rules = $MAPI.DefaultStore.GetRules()
+            $rule = $rules.create($RuleName, [Microsoft.Office.Interop.Outlook.OlRuleType]::OlRuleReceive)
 
-        $SubText = $rule.Conditions.Subject
-        $SubText.Enabled = $true
-        #Set the matching strings in the email subject to our flags array
-        $SubText.Text = $flags
-        $action = $rule.Actions.MoveToFolder
-        $action.enabled = $true
-        [Microsoft.Office.Interop.Outlook._MoveOrCopyRuleAction].InvokeMember(
-            "Folder",
-            [System.Reflection.BindingFlags]::SetProperty,
-            $null,
-            $action,
-            $DeletedFolder)
-        #Save and enable the rule
-        try {
-            $rules.Save()
-            Write-Verbose "Saved Outlook Rule with name: $Rulename"
-        } 
-        catch {
-            Write-Warning "Unable to save inbound rule with name: $RuleName"
+            $SubText = $rule.Conditions.Subject
+            $SubText.Enabled = $true
+            #Set the matching strings in the email subject to our flags array
+            $SubText.Text = $flags
+            $action = $rule.Actions.MoveToFolder
+            $action.enabled = $true
+            [Microsoft.Office.Interop.Outlook._MoveOrCopyRuleAction].InvokeMember(
+                "Folder",
+                [System.Reflection.BindingFlags]::SetProperty,
+                $null,
+                $action,
+                $DeletedFolder)
+            #Save and enable the rule
+            try {
+                $rules.Save()
+                Write-Verbose "Saved Outlook Rule with name: $Rulename"
+            } 
+            catch {
+                Write-Warning "Unable to save inbound rule with name: $RuleName"
+            }
         }
+        
     }
 
 
