@@ -8,7 +8,7 @@ MailRaider is a tool that can be used to browse/search a user's Outlook folders 
 ###Quick Usage Guide
 
 #####Disable-SecuritySettings -AdminUser "LOCALHOST\Admin" -AdminPass "IamAdmin#123" 
-This function sets/creates the required registry keys in order to disamble the Outlook programmatic access 
+This function sets/creates the required registry keys in order to disable the Outlook programmatic access 
 prompt. Please note that if Anti-Virus is not installed and updated on the host, changing these keys will not make a difference. 
 
 #####View-Email -FolderName "Inbox" -Index 25
@@ -30,6 +30,5 @@ This function will conduct a multithreaded search through specified Outlook Defa
 TESTED On: 
 Windows 7/Outlook 2013
 Windows 8/Outlook 2013
-Windows 7/
 
   
