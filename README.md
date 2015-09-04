@@ -3,7 +3,7 @@
 
 ###Synopsis
 
-Mailman is a tool that can be used to browse/search a client's Outlook folders as well as send phishing emails internally using their Outlook client. Mailman should be usefule in situations where lateral movement is restricted or phishing with a legitimate account is needed to obtain further access. 
+MailRaider is a tool that can be used to browse/search a user's Outlook folders as well as send phishing emails internally using their Outlook client.  
 
 ###Quick Usage Guide
 
