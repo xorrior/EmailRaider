@@ -27,7 +27,7 @@ This function will send an email to the specified target/s. The TargetList param
 This function will conduct a multithreaded search through specified Outlook Default folder for emails that contain the keyword. 
 
 
-TESTED In: 
+TESTED On: 
 Windows 7/Outlook 2013
 Windows 8/Outlook 2013
 Windows 7/
