@@ -481,12 +481,13 @@ Function Get-EmailItems{
             }
 
             $Emails += $Email
+            $Emails = $Emails | Sort-Object -Property TimeSent -Descending
 
         }
     }
     else{
         Write-Verbose "Obtained full Email Item objects...."
-        $Emails = $Items
+        $Emails = $Items | Sort-Object -Property SentOn -Descending
     }
     
 
@@ -508,8 +509,8 @@ Function Invoke-MailSearch{
     .PARAMETER DefaultFolder
     Folder to search in. Default is the Inbox. 
 
-    .PARAMETER Keyword
-    Keyword/s to search for. The default is password
+    .PARAMETER Keywords
+    Keyword/s to search for.
 
     .PARAMETER MaxResults
     Maximum number of results to return.
@@ -519,6 +520,9 @@ Function Invoke-MailSearch{
 
     .PARAMETER MaxThreads
     Maximum number of threads to use when searching 
+
+    .PARAMETER File
+    Path to results file
     
     .EXAMPLE
     Invoke-MailSearch -Keyword "password" -MaxResults 20 -MaxThreads 30
@@ -533,31 +537,34 @@ Function Invoke-MailSearch{
         [string]$DefaultFolder,
 
         [Parameter(Mandatory = $True)]
-        [string]$Keyword,
+        [string[]]$Keywords,
 
         [Parameter(Mandatory = $False)]
         [int]$MaxResults,
 
         [Parameter(Mandatory = $True)]
-        [int]$MaxThreads,
+        [int]$MaxThreads = 15,
 
         [Parameter(Mandatory = $False)]
-        [int]$MaxSearch
+        [int]$MaxSearch,
+
+        [Parameter(Mandatory = $False)]
+        [string]$File
     )
 
     #Variable to hold the results 
-    $Results = @()
+    $ResultsList = @()
 
+  
     $SearchEmailBlock = {
 
-        param($Keyword, $MailItem)
-
+        param($Regex, $MailItem)
+        $Subject = $MailItem.Subject
+        $Body = $MailItem.Body 
         
-        if(($Subject | Select-String -Pattern $Keyword) -or ($Body | Select-String -Pattern $Keyword)){
-            $Email = $MailItem
+        if(($($Regex.Match($Subject)).Success) -or ($($Regex.Match($Body)).Success)){
+            $MailItem
         }
-        
-        $Email 
     }
 
 
@@ -570,6 +577,22 @@ Function Invoke-MailSearch{
         $Emails = Get-EmailItems -Folder $OF -FullObject   
     }
 
+    #Create regex for keywords 
+    if($Keywords.Count -gt 1){
+        $count = $Keywords.Count - 2
+        for($i = 0; $i -lt $count; $i++){
+            $Keywords[$i] += "|"
+        }
+
+        [string]$Keywords = $Keywords -join ''
+        $Keywords = "\b($Keywords)\b"
+        
+    }
+    else {
+        $Keywords =  "\b($Keywords)\b"
+    }
+
+    $Regex = [regex]$Keywords
         
 
     Write-Verbose "[*] Searching through $($Emails.count) emails....."
@@ -610,7 +633,7 @@ Function Invoke-MailSearch{
 
         while ($($pool.GetAvailableRunSpaces()) -le 0){
 
-            Start-Sleep -Milliseconds 100
+            Start-Sleep -Milliseconds 500
 
         }
 
@@ -618,7 +641,7 @@ Function Invoke-MailSearch{
 
         $ps[$counter].runspacepool = $pool
 
-        [void]$ps[$counter].AddScript($SearchEmailBlock).AddParameter('Keywords', $Keywords).AddParameter('MailItem', $Msg)
+        [void]$ps[$counter].AddScript($SearchEmailBlock).AddParameter('Regex', $Regex).AddParameter('MailItem', $Msg)
 
         $jobs += $ps[$counter].BeginInvoke();
 
@@ -632,14 +655,17 @@ Function Invoke-MailSearch{
     $waitTimeout = Get-Date 
 
     while ($($jobs | ? {$_.IsCompleted -eq $false}).count -gt 0 -or $($($(Get-Date) - $waitTimeout).totalSeconds) -gt 60) {
-        Start-Sleep -Milliseconds 100
+        Start-Sleep -Milliseconds 500
     }
 
     for ($x = 0; $x -lt $counter; $x++){
 
         try {
             
-            $Results += $ps[$x].EndInvoke($jobs[$x])
+            $result = $ps[$x].EndInvoke($jobs[$x])
+            if($result){
+                $ResultsList += $result 
+            }
 
         }
         catch {
@@ -654,20 +680,20 @@ Function Invoke-MailSearch{
 
     $pool.Dispose()
 
-    if($MaxResults){
+    
 
-       $Results = $Results | Select-Object -First $MaxResults
-       $Results | ForEach-Object {
-            $_  | Select-Object To,SenderName,SenderEmailAddress,Subject,Body,SentOn,ReceivedTime | Format-List  
-            Write-Host "`n"
-       }
- 
+    If($MaxResults){
+        $ResultsList = $ResultsList | Select-Object -First $MaxResults
     }
-    else{
-        $Results | ForEach-Object {
-            $_  | Select-Object To,SenderName,SenderEmailAddress,Subject,Body,SentOn,ReceivedTime | Format-List 
-            Write-Host "`n"
-        }
+
+    If($File){
+
+        $ResultsList | Select-Object SenderName,SenderEmailAddress,ReceivedTime,To,Subject,Body | Format-List * | Out-File $File 
+        
+    }
+    else {
+        $ResultsList | Select-Object SenderName,SenderEmailAddress,ReceivedTime,To,Subject,Body | Format-List *
+        
     }
     
 }
