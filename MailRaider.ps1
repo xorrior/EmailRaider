@@ -910,9 +910,7 @@ Function Disable-SecuritySettings{
 
         $currentValue = (Get-ItemProperty $LMSecurityKey -Name ObjectModelGuard -ErrorAction SilentlyContinue).ObjectModelGuard 
         if($currentValue -and ($currentValue -ne 2)){
-            #Save the original value 
-            $script:ObjectModelGuardEdited = $True
-            $script:OldObjectModelGuard = (Get-ItemProperty $LMSecurityKey -Name ObjectModelGuard).ObjectModelGuard
+            
             $cmd = "Set-ItemProperty $LMSecurityKey -Name ObjectModelGuard -Value 2 -Force; "
         }
         elseif(!($currentValue)) {
@@ -931,10 +929,9 @@ Function Disable-SecuritySettings{
     else{
         $currentValue = (Get-ItemProperty $CUSecurityKey -Name PromptOOMSend -ErrorAction SilentlyContinue).PromptOOMSend
         if($currentValue -and ($currentValue -ne 2)){
-            #save the old value  
-            $script:OldPromptOOMSend = (Get-ItemProperty $CUSecurityKey -Name PromptOOMSend).PromptOOMSend
+            
             $cmd += "Set-ItemProperty $CUSecurityKey -Name PromptOOMSend -Value 2 -Force; "
-            $script:PromptOOMSendEdited = $True
+            
         }
         elseif(!($currentValue)) {
              $cmd += "New-ItemProperty $CUSecurityKey -Name PromptOOMSend -Value 2 -PropertyType DWORD -Force; "
@@ -942,10 +939,9 @@ Function Disable-SecuritySettings{
         
         $currentValue = (Get-ItemProperty $CUSecurityKey -Name AdminSecurityMode -ErrorAction SilentlyContinue).AdminSecurityMode 
         if($currentValue -and ($currentValue -ne 3)){
-            #save the old value 
-            $script:OldAdminSecurityMode = (Get-ItemProperty $CUSecurityKey -Name AdminSecurityMode).AdminSecurityMode
+            
             $cmd += "Set-ItemProperty $CUSecurityKey -Name AdminSecurityMode -Value 3 -Force"
-            $script:AdminSecurityModeEdited = $True 
+            
         }
         elseif(!($currentValue)) {
             $cmd += "New-ItemProperty $CUSecurityKey -Name AdminSecurityMode -Value 3 -PropertyType DWORD -Force"
@@ -982,10 +978,10 @@ Function Disable-SecuritySettings{
     
 
     if($count -eq 1){
-        Write-Verbose "Everyting seems ok......"
+        Write-Verbose "Success"
     }
     elseif($count -eq 0){
-        Write-Verbose "Uhhhh, don't run any functions from this script......"
+        Write-Verbose "Disable-SecuritySettings Failed"
     }
 
 }
@@ -1014,12 +1010,12 @@ Function Reset-SecuritySettings{
         [string]$AdminUser,
 
         [Parameter(Mandatory = $False)]
-        [string]$AdminPass 
+        [string]$AdminPass,
+
+        [Parameter(Mandatory = $True)]
+        [string]$Version
     )
 
-
-    $Version = $script:Outlook.Version 
-    $Version = $Version.Substring(0,4)
 
     $LMSecurityKey = "HKLM:\SOFTWARE\Microsoft\Office\$Version\Outlook\Security"
 
@@ -1028,27 +1024,16 @@ Function Reset-SecuritySettings{
         
         
     #if the old value exists, that means the registry key was set and not created. 
-    if($($script:ObjectModelGuardEdited)){
-        #If the key was set, change it back to original value
-        $cmd = "Set-ItemProperty $LMSecurityKey -Name ObjectModelGuard -Value $($script:OldObjectModelGuard) -Force;"
-    }
-    else{
-        #if the key was created, remove it.
+    if(Test-Path $LMSecurityKey){
+        #If the key exists, remove it.
         $cmd = "Remove-ItemProperty -Path $LMSecurityKey -Name ObjectModelGuard -Force;"
     }
 
-    if($script:PromptOOMSendEdited){
-        $cmd += "Set-ItemProperty $CUSecurityKey -Name PromptOOMSend -Value $($script:OldPromptOOMSend) -Force;" 
-    }
-    else {
-        $cmd += "Remove-ItemProperty -Path $CUSecurityKey -Name PromptOOMSend -Force;"
-    }
+    if(Test-Path $CUSecurityKey){
 
-    if($script:AdminSecurityModeEdited){
-        $cmd += "Set-ItemProperty $CUSecurityKey -Name AdminSecurityMode -Value $($script:OldAdminSecurityMode) -Force"
-    }
-    else {
+        $cmd += "Remove-ItemProperty -Path $CUSecurityKey -Name PromptOOMSend -Force;" 
         $cmd += "Remove-ItemProperty -Path $CUSecurityKey -Name AdminSecurityMode -Force"
+
     }
 
     if($AdminUser -and $AdminPass){
