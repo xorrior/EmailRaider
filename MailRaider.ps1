@@ -1079,7 +1079,7 @@ Function Get-OutlookInstance{
     .EXAMPLE
     Get-OutlookInstance
 
-    Get an instance of Outlook and use the specified credentials to change the registry keys. 
+    Get an instance of Outlook 
 
     #>
     try {
