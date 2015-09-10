@@ -15,7 +15,7 @@ Function Invoke-SendMail {
     This function sends emails using a custom or default template to specified target email addresses.
 
     .DESCRIPTION
-    This function sends a specified number of phishing emails to a random list of email addresses or a specified target list. A payload or URL can be included in the email. The E-Mail will be constructed based on a 
+    This function sends a specified number of phishing emails to a specific email address or a target list. A payload or URL can be included in the email. The E-Mail will be constructed based on a 
     template or by specifying the Subject and Body of the email. 
 
     .PARAMETER Targets
