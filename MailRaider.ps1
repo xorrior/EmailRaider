@@ -173,10 +173,10 @@ Function Invoke-Rule {
 
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $True, Position = 0)]
+        [Parameter(Mandatory = $False, Position = 0)]
         [string]$Subject,
 
-        [Parameter(Mandatory = $True, Position = 1)]
+        [Parameter(Mandatory = $False, Position = 1)]
         [string]$RuleName,
 
         [Parameter(Mandatory = $False, Position = 2)]
@@ -774,6 +774,195 @@ Function Get-GlobalAddressList{
     $GAL 
 }
 
+Function Invoke-SearchGAL {
+
+    <#
+    .SYNOPSIS
+    This function returns any users that match the exchange criteria specified. 
+
+    .DESCRIPTION
+    This fuction returns any exchange users that match the specified search criteria. Searchable fields are FirstName, LastName, JobTitle, Email-Address, and Department
+
+    .PARAMETER FirstName
+    First Name to search for 
+
+    .PARAMETER LastName
+    Last Name to search for 
+
+    .PARAMETER JobTitle
+    Job Title to search for 
+
+    .PARAMETER  Email
+    E-Mail Address to search for
+
+    .PARAMETER  Dept
+    Department to search for 
+
+    .PARAMETER MaxThreads
+    The maximum number of threads to use when searching. The default is set to 15. 
+    
+    .EXAMPLE 
+
+    Invoke-SearchGAL -JobTitle "System Administrator" -MaxThreads 30 
+
+    Search the GAL with 30 threads, for any Exchange Users with the JobTitle "System Administrator". 
+
+
+    #>
+
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $True, ParameterSetName = "Name", Position = 0)]
+        [string]$FullName,
+
+        [Parameter(Mandatory = $True, ParameterSetName = "JobTitle", Position = 1)]
+        [string]$JobTitle,
+
+        [Parameter(Mandatory = $True, ParameterSetName = "Email", Position = 2)]
+        [string]$Email,
+
+        [Parameter(Mandatory = $True, ParameterSetName = "Department", Position = 3)]
+        [string]$Dept,
+
+        [Parameter(Mandatory = $False, Position = 4)]
+        [int]$MaxThreads = 15
+    )
+
+
+    $Outlook = Get-OutlookInstance
+
+    $MAPI = $Outlook.GetNamespace("MAPI")
+
+    $GAL = Get-GlobalAddressList -MAPI $MAPI
+
+    $UserList = @()
+
+    ForEach($Entry in $GAL){
+        $UserList += $Entry.GetExchangeUser()
+    }
+
+    $GAL = $UserList
+    
+    #$User = $GAL | Where-Object {($($_.GetExchangeUser()).FirstName -eq $FirstName) -and ($($_.GetExchangeUser()).LastName -eq $LastName)}
+    
+    $SearchScript = {
+        param($Regex,$Type,$User)
+
+        if($Regex.Match($($User.$Type)).Success){
+            $User
+        }
+    }
+
+
+    if($PSCmdlet.ParameterSetName -eq "Name"){
+        $Type = "Name"
+        $Term = $FullName
+    }
+    elseif($PSCmdlet.ParameterSetName -eq "JobTitle"){
+        $Type = "JobTitle"
+        $Term = $JobTitle
+    }
+    elseif($PSCmdlet.ParameterSetName -eq "Email"){
+        $Type = "PrimarySMTPAddress"
+        $Term = $Email
+    }
+    else {
+        $Type = "Department"
+        $Term = $Dept
+    }
+
+    $Regex = [regex]"\b($Term)\b"
+    #All of this multithreading magic is taken directly from harmj0y and his child, powerview
+    #https://github.com/PowerShellEmpire/PowerTools/blob/master/PowerView/powerview.ps1#L5672
+    $sessionState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+    $sessionState.ApartmentState = [System.Threading.Thread]::CurrentThread.GetApartmentState()
+
+    #Get all the current variables for this runspace 
+    $MyVars = Get-Variable -Scope 1
+
+    $VorbiddenVars = @("?","args","ConsoleFileName","Error","ExecutionContext","false","HOME","Host","input","InputObject","MaximumAliasCount","MaximumDriveCount","MaximumErrorCount","MaximumFunctionCount","MaximumHistoryCount","MaximumVariableCount","MyInvocation","null","PID","PSBoundParameters","PSCommandPath","PSCulture","PSDefaultParameterValues","PSHOME","PSScriptRoot","PSUICulture","PSVersionTable","PWD","ShellId","SynchronizedHash","true")
+
+    #Add the variables from the current runspace to the new runspace 
+    ForEach($Var in $MyVars){
+        if($VorbiddenVars -notcontains $Var.Name){
+            $sessionState.Variables.Add((New-Object -Typename System.Management.Automation.Runspaces.SessionStateVariableEntry -ArgumentList $Var.name,$Var.Value,$Var.description,$Var.options,$Var.attributes))
+        }
+    }
+
+    
+    Write-Verbose "Creating RunSpace Pool"
+    $pool = [runspacefactory]::CreateRunspacePool(1, $MaxThreads, $sessionState, $host)
+    $pool.Open()
+
+    $jobs = @()
+    $ps = @()
+    $wait = @()
+
+    $counter = 0
+    $AddressCount = 1
+
+    Write-Verbose "The SearchString is $Term"
+
+    ForEach($User in $GAL){
+
+        Write-Verbose "Searching the through ($AddressCount/$($GAL.Count) address entries...."
+
+        while ($($pool.GetAvailableRunSpaces()) -le 0){
+
+            Start-Sleep -Milliseconds 500
+
+        }
+
+        $ps += [powershell]::create()
+
+        $ps[$counter].runspacepool = $pool
+        #Write-Verbose "Adding $SearchScript"
+        [void]$ps[$counter].AddScript($SearchScript).AddParameter('Regex', $Regex).AddParameter('Type',$Type).AddParameter('User', $User)
+
+        $jobs += $ps[$counter].BeginInvoke();
+
+        $wait += $jobs[$counter].AsyncWaitHandle
+
+        $counter = $counter + 1
+        $AddressCount = $AddressCount + 1
+
+    }
+
+    $waitTimeout = Get-Date 
+
+    while ($($jobs | ? {$_.IsCompleted -eq $false}).count -gt 0 -or $($($(Get-Date) - $waitTimeout).totalSeconds) -gt 60) {
+        Start-Sleep -Milliseconds 500
+    }
+
+    for ($x = 0; $x -lt $counter; $x++){
+
+        try {
+            
+            $result = $ps[$x].EndInvoke($jobs[$x])
+            if($result){
+                $ResultsList += $result 
+            }
+
+        }
+        catch {
+            Write-Warning "error: $_"
+        }
+
+        finally {
+
+            $ps[$x].Dispose()
+        }
+    }
+
+    $pool.Dispose()
+
+    $ResultsList | Select-Object FirstName,LastName,Department,JobTitle,PrimarySMTPAddress,OfficeLocation,BusinessTelephoneNumber | Format-List *
+
+    [System.Runtime.Interopservices.Marshal]::ReleaseComObject($Outlook) | Out-Null
+
+
+}
+
 Function Get-SMTPAddress{
     <#
     .SYNOPSIS
@@ -783,7 +972,7 @@ Function Get-SMTPAddress{
     This function returns the PrimarySMTPAddress of a user via the ExchangeUser object. 
 
     .PARAMETER FullName
-    First and Last name of the user
+    First and Last name of the user separated by a space. 
 
     .OUTPUTS
     System.String . Primary email address of the user.
@@ -807,7 +996,8 @@ Function Get-SMTPAddress{
     If($FullNames){
         ForEach($Name in $FullNames){
             try{
-                $User = $GAL | Where-Object {$_.Name -eq $Name}
+                $regex = [regex]"\b($Name)\b"
+                $User = $GAL | Where-Object {$_.Name -Match $regex}
             }
             catch {
                 Write-Warning "Unable to obtain exchange user object with the name: $Name"
