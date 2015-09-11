@@ -689,11 +689,11 @@ Function Invoke-MailSearch{
 
     If($File){
 
-        $ResultsList | Select-Object SenderName,SenderEmailAddress,ReceivedTime,To,Subject,Body | Format-List * | Out-File $File 
+        $ResultsList | Select-Object SenderName,SenderEmailAddress,ReceivedTime,To,Subject,Body | Out-File $File 
         
     }
     else {
-        $ResultsList | Select-Object SenderName,SenderEmailAddress,ReceivedTime,To,Subject,Body | Format-List *
+        $ResultsList | Select-Object SenderName,SenderEmailAddress,ReceivedTime,To,Subject,Body
         
     }
     
@@ -954,7 +954,7 @@ Function Invoke-SearchGAL {
 
     $pool.Dispose()
 
-    $ResultsList | Select-Object FirstName,LastName,Department,JobTitle,PrimarySMTPAddress,OfficeLocation,BusinessTelephoneNumber | Format-List *
+    $ResultsList 
 
     [System.Runtime.Interopservices.Marshal]::ReleaseComObject($Outlook) | Out-Null
 
