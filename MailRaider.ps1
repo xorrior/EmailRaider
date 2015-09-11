@@ -315,14 +315,14 @@ Function Select-EmailItem{
 
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $False, Position = 0, ValueFromPipeline = $True)]
+        [Parameter(Mandatory = $False, ValueFromPipeline = $True)]
         [System.__ComObject]$FolderObj,
 
-        [Parameter(Mandatory = $True, Position = 1)]
-        [int]$Index = 0
+        [Parameter(Mandatory = $True)]
+        [int]$Num
     )
 
-    $EmailItem = $FolderObj.Items | Select-Object -Index $Index
+    $EmailItem = $FolderObj.Items | Select-Object -Index $Num 
 
     $EmailItem | Select-Object To,SenderName,SenderEmailAddress,Subject,Body,SentOn,ReceivedTime
     
@@ -354,11 +354,12 @@ Function View-Email {
         [string]$FolderName,
 
         [Parameter(Mandatory = $False, Position = 1)]
-        [string]$Index = 0
+        [int]$Index = 0
     )
 
 
-    Get-OutlookFolder -Name $FolderName | Select-EmailItem -Index $Index
+    $OF = Get-OutlookFolder -Name $FolderName 
+    Select-EmailItem -FolderObj $OF -Num $Index
 }
 
 Function Get-OutlookFolder{
@@ -783,11 +784,8 @@ Function Invoke-SearchGAL {
     .DESCRIPTION
     This fuction returns any exchange users that match the specified search criteria. Searchable fields are FirstName, LastName, JobTitle, Email-Address, and Department
 
-    .PARAMETER FirstName
-    First Name to search for 
-
-    .PARAMETER LastName
-    Last Name to search for 
+    .PARAMETER FullName
+    Full Name to search for
 
     .PARAMETER JobTitle
     Job Title to search for 
