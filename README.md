@@ -16,7 +16,7 @@ This function selects the specified folder and then displays the EmailItem at th
 individual e-mails, one at a time. 
 
 #####Get-SMTPAddress -FullName "William Striker"
-This function returns the Primary SMTP address of a user from the Global Address List based on there Full Name.
+This function returns the Primary SMTP address of a user from the Global Address List based on their Full Name.
 
 #####Invoke-SendEmail -Targets "testuser@testing.com" -Subject "Wub Wub Wub" -Body "Hey! This is a test email" -Attachment .\Payload.rtf
 
